@@ -65,8 +65,9 @@ class _KF:
 
 
 class _Track:
-    def __init__(self, tid, cls, box, score, frame, delta_t):
+    def __init__(self, tid, cls, box, score, frame, delta_t, feature=None):
         self.tid, self.cls, self.delta_t = tid, cls, delta_t
+        self.feature = feature
         self.kf = _KF(_z(box))
         self.obs: dict[int, np.ndarray] = {frame: box.copy()}   # frame -> observed box
         self.last_obs = box.copy()
@@ -148,16 +149,36 @@ def _assign(cost_iou, extra, thr):
     return m, [i for i in range(cost_iou.shape[0]) if i not in mi], [j for j in range(cost_iou.shape[1]) if j not in mj]
 
 
+def _look_gate(tracks, feats, iou, gate):
+    """Zero out IoU for pairs that do not look alike, so they can never be matched."""
+    if gate <= 0 or feats is None or not iou.size:
+        return iou
+    tf = np.array([np.zeros(feats.shape[1]) if t.feature is None else t.feature for t in tracks])
+    sim = tf @ feats.T
+    known = (np.linalg.norm(tf, axis=1, keepdims=True) > 0) & (np.linalg.norm(feats, axis=1, keepdims=True).T > 0)
+    return np.where(known & (sim < gate), 0.0, iou)
+
+
 class OCSort:
     def __init__(self, det_thr=0.5, low_thr=0.1, iou_thr=0.3, max_age=60, min_hits=3, delta_t=3,
-                 inertia=0.2, use_byte=True, new_thr=0.6):
+                 inertia=0.2, use_byte=True, new_thr=0.6, look_gate=0.0, look_rate=0.1):
+        self.look_gate, self.look_rate = look_gate, look_rate
         self.det_thr, self.low_thr, self.iou_thr = det_thr, low_thr, iou_thr
         self.max_age, self.min_hits, self.delta_t = max_age, min_hits, delta_t
         self.inertia, self.use_byte, self.new_thr = inertia, use_byte, new_thr
         self.tracks: list[_Track] = []
         self._next = 1
 
-    def update(self, frame, boxes, scores, classes):
+    def _learn_look(self, t, feats, j):
+        if feats is None or not np.any(feats[j]):
+            return
+        if t.feature is None or not np.any(t.feature):
+            t.feature = feats[j].copy()
+            return
+        f = (1 - self.look_rate) * t.feature + self.look_rate * feats[j]
+        t.feature = f / max(np.linalg.norm(f), 1e-6)
+
+    def update(self, frame, boxes, scores, classes, features=None):
         for t in self.tracks:
             t.predict()
         out = []
@@ -167,17 +188,20 @@ class OCSort:
             b, s = boxes[cm], scores[cm]
             hi, lo = s >= self.det_thr, (s >= self.low_thr) & (s < self.det_thr)
             hb, hs, lb, ls = b[hi], s[hi], b[lo], s[lo]
+            f = features[cm] if features is not None else None
+            hf, lf = (f[hi], f[lo]) if f is not None else (None, None)
             trk = [t for t in self.tracks if t.cls == c]
             tb = np.array([t.box for t in trk]).reshape(-1, 4)
             # 1) IoU + OCM
-            iou = box_iou(tb, hb)
+            iou = _look_gate(trk, hf, box_iou(tb, hb), self.look_gate)
             m, ut, ud = _assign(iou, _direction_cost(trk, hb, self.inertia) * hs[None] if len(hb) else iou, self.iou_thr)
             for i, j in m:
                 trk[i].update(hb[j], hs[j], frame)
+                self._learn_look(trk[i], hf, j)
             # 2) BYTE: remaining tracks vs low-score detections
             if self.use_byte and ut and len(lb):
                 rem = [trk[i] for i in ut]
-                iou2 = box_iou(np.array([t.box for t in rem]), lb)
+                iou2 = _look_gate(rem, lf, box_iou(np.array([t.box for t in rem]), lb), self.look_gate)
                 m2, ut2, _ = _assign(iou2, np.zeros_like(iou2), self.iou_thr)
                 for i, j in m2:
                     rem[i].update(lb[j], ls[j], frame)
@@ -186,14 +210,17 @@ class OCSort:
             if ut and ud:
                 rem_t = [trk[i] for i in ut]
                 rem_d = hb[ud]
-                iou3 = box_iou(np.array([t.last_obs for t in rem_t]), rem_d)
+                iou3 = _look_gate(rem_t, hf[ud] if hf is not None else None,
+                                  box_iou(np.array([t.last_obs for t in rem_t]), rem_d), self.look_gate)
                 m3, _, ud3 = _assign(iou3, np.zeros_like(iou3), self.iou_thr)
                 for i, j in m3:
                     rem_t[i].update(rem_d[j], hs[ud[j]], frame)
+                    self._learn_look(rem_t[i], hf, ud[j])
                 ud = [ud[j] for j in ud3]
             for j in ud:
                 if hs[j] >= self.new_thr:
-                    self.tracks.append(_Track(self._next, int(c), hb[j], hs[j], frame, self.delta_t))
+                    self.tracks.append(_Track(self._next, int(c), hb[j], hs[j], frame, self.delta_t,
+                                              hf[j].copy() if hf is not None else None))
                     self._next += 1
         self.tracks = [t for t in self.tracks if t.time_since_update <= self.max_age]
         for t in self.tracks:

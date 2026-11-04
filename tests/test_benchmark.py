@@ -394,6 +394,7 @@ class _Script(Detector):
 
 def _play(det, arrow, frames=120, fps=25, pan=0.0, **kw):
     from benchmark.live import LivePipeline
+    kw.setdefault("min_box_h", 0)      # _Script's person is 60 px tall
     a = _scene()
     p = LivePipeline(det, arrow, a.shape, **kw)
     out = []
@@ -428,7 +429,7 @@ def test_live_panning_camera_does_not_make_a_standing_person_red():
 def test_live_cut_resets_motion_and_no_arrow_is_all_gray():
     from benchmark.live import LivePipeline
     a, b = _scene(), _scene(seed=5)[..., ::-1] // 2
-    p = LivePipeline(_Script(-2.4), [100, 270, 800, 270], a.shape)
+    p = LivePipeline(_Script(-2.4), [100, 270, 800, 270], a.shape, min_box_h=0)
     for i in range(80):
         r = p.process(a, i / 25)
     assert "red" in _states([r])
@@ -480,7 +481,7 @@ def test_app_full_flow_upload_draw_watch(tmp_path):
         code, body = _req(base + "/api/start", "POST", {"video": info["video"], "arrow": None})
         assert code == 400 and b"draw" in body
         code, _ = _req(base + "/api/start", "POST", {"video": info["video"], "arrow": [100, 270, 800, 270],
-                                                      "every_frame": True, "camera_moves": False})
+                                                      "every_frame": True, "camera_moves": False, "min_box_h": 0})
         assert code == 200
         for _ in range(200):
             s = _json.loads(_req(base + "/api/status")[1])
@@ -577,3 +578,60 @@ def test_live_mark_is_held_briefly_then_released():
     assert p._shown(2, "gray", 10.0) == "gray"      # never decided: stays gray
     p._shown(3, "red", 10.0)
     assert p._shown(3, "green", 10.5) == "green"    # a new decision wins at once
+
+
+# ------------------------------------------------------------------ accuracy fixes
+def _crossing(tracker, feats, n=70):
+    """Two people cross; while they overlap the detector sees only one of them (the usual failure)."""
+    ends = {}
+    for f in range(n):
+        boxes = np.array([[100 + 6 * f, 200, 150 + 6 * f, 320], [520 - 6 * f, 202, 570 - 6 * f, 322]], np.float32)
+        use = [0] if abs(boxes[0, 0] - boxes[1, 0]) < 40 else [0, 1]
+        kw = {"features": feats[use]} if feats is not None else {}
+        for tid, _c, box, _s, _q in tracker.update(f, boxes[use], np.full(len(use), 0.9), np.ones(len(use), int), **kw):
+            ends.setdefault(tid, []).append((f, float(box[0])))
+    return ends
+
+
+def test_look_gate_keeps_ids_when_differently_dressed_people_cross():
+    a, b = np.zeros(64, np.float32), np.zeros(64, np.float32)
+    a[3], b[40] = 1, 1
+    ends = _crossing(OCSort(look_gate=0.7, det_thr=.35, new_thr=.4, max_age=20), np.stack([a, b]))
+    for path in ends.values():                   # nobody may change walking direction
+        xs = [x for _, x in path]
+        steps = np.diff(xs)
+        assert (steps >= -8).all() or (steps <= 8).all(), path
+
+
+def test_reid_tells_clothes_apart_but_not_the_same_person():
+    from benchmark.reid import box_features
+    img = np.zeros((200, 300, 3), np.uint8)
+    img[:, :100] = (255, 255, 255)
+    img[:, 100:200] = (30, 30, 200)
+    img[:, 200:] = (250, 250, 250)
+    f = box_features(img, np.array([[0, 0, 100, 200], [100, 0, 200, 200], [200, 0, 300, 200]], float))
+    assert f[0] @ f[2] > 0.95 and f[0] @ f[1] < 0.5
+    assert np.allclose(box_features(img, np.array([[50, 50, 50, 50]], float)), 0)   # empty box: no opinion
+
+
+def test_straightness_keeps_a_wavering_person_gray():
+    cam = _cam()
+    kw = dict(window_s=1.5, min_disp_m=0.5, min_age_s=1.0)
+
+    def play(params):
+        dc = DirectionClassifier(cam, people=params)
+        x, out = 100.0, []
+        for i in range(200):
+            x += 0.12 if (i // 12) % 2 else -0.2      # sways every half second, drifting against the arrow
+            out.append(dc.update(i / 25, 1, "person", (10, 10), np.array([x, 100.0])))
+        return out
+    assert RED in play(ClassParams(**kw))             # without the check, the drift counts as wrong way
+    assert RED not in play(ClassParams(**kw, min_straightness=0.6))
+
+
+def test_small_people_and_poor_tracks_stay_gray():
+    arrow = [100, 270, 800, 270]
+    _, res = _play(_Script(-2.4), arrow, min_box_h=100)   # person is 60 px tall
+    assert "red" not in _states(res)
+    _, res = _play(_Script(-2.4), arrow, min_box_h=40)
+    assert "red" in _states(res)

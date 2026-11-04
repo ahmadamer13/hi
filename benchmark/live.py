@@ -19,6 +19,7 @@ import numpy as np
 from .detectors import CLASSES, CLS_ID
 from .direction import GRAY, GREEN, RED, ClassParams, DirectionClassifier, Zone
 from .ocsort import OCSort
+from .reid import box_features
 from .stabilize import CameraMotion, transform_boxes
 from .tracker import ByteTrack
 
@@ -63,15 +64,24 @@ class FrameResult:
 
 class LivePipeline:
     def __init__(self, detector, arrow, frame_shape, camera_moves=True, min_disp_m=1.5, tracker="ocsort",
-                 hold_mark_s=2.0):
+                 hold_mark_s=2.0, min_straightness=0.6, tracker_kw=None, window_s=1.5, max_age=20,
+                 min_box_h=100.0, min_quality=0.5):
         self.det, self.camera_moves, self.tracker_name = detector, camera_moves, tracker
         self.hold_mark_s = hold_mark_s   # a confirmed mark stays on screen long enough to be seen
         self.marks: dict[int, tuple[str, float]] = {}
         self.frame_shape = frame_shape
+        self.min_box_h, self.min_quality = min_box_h, min_quality
+        # Crowd detections rarely score high, so tracks must be able to start at moderate confidence.
+        # look_gate refuses to pass a track to someone dressed differently: without it, IDs swapped
+        # when people crossed in opposite directions, which is exactly the wrong-way case.
+        defaults = {"det_thr": 0.35, "low_thr": 0.15, "new_thr": 0.4, "max_age": max_age, "look_gate": 0.7}
+        self.tracker_kw = (tracker_kw if tracker_kw is not None else defaults) if tracker == "ocsort" else (tracker_kw or {})
         self.field = ArrowField(arrow, frame_shape)
         k = min_disp_m / 1.5
-        self.people = ClassParams(window_s=1.5, min_disp_m=min_disp_m, min_age_s=1.0)
-        self.bus = ClassParams(window_s=4.0, min_disp_m=5.0 * k, min_age_s=3.0, confirm_red_s=1.5)
+        self.people = ClassParams(window_s=window_s, min_disp_m=min_disp_m, min_age_s=1.0,
+                                  min_straightness=min_straightness)
+        self.bus = ClassParams(window_s=4.0, min_disp_m=5.0 * k, min_age_s=3.0, confirm_red_s=1.5,
+                               min_straightness=min_straightness)
         self.motion = CameraMotion()
         self.n = 0
         self.red_ids: set[int] = set()
@@ -80,7 +90,7 @@ class LivePipeline:
         self._forget_motion()
 
     def _new_tracker(self):
-        self.tracker = OCSort() if self.tracker_name == "ocsort" else ByteTrack()
+        self.tracker = (OCSort if self.tracker_name == "ocsort" else ByteTrack)(**self.tracker_kw)
 
     def _forget_motion(self):
         self.dirs = DirectionClassifier(self.field, people=self.people, bus=self.bus)
@@ -106,6 +116,9 @@ class LivePipeline:
             y = box_ref[3]                                     # bus: bottom centre
         return np.array([x * mpp, -y * mpp])
 
+    def _features(self, frame, boxes):
+        return box_features(frame, boxes)
+
     def _shown(self, uid, state, ts):
         """Gray right after a confirmed decision keeps showing it briefly; a new decision replaces it."""
         if state != GRAY:
@@ -130,10 +143,11 @@ class LivePipeline:
         res.camera_ok = ok
         if not ok:
             self._forget_motion()
-        tracks = self.tracker.update(self.n, d.boxes, d.scores, d.classes)
+        kw = {"features": self._features(frame, d.boxes)} if self.tracker_name == "ocsort" else {}
+        tracks = self.tracker.update(self.n, d.boxes, d.scores, d.classes, **kw)
         self.n += 1
         counts = {"people": Counter(), "bus": Counter()}
-        for tid, c, box, _score, _quality in tracks:
+        for tid, c, box, _score, quality in tracks:
             name = CLASSES[c]
             uid = self.next_id_base + tid
             state = GRAY
@@ -141,6 +155,8 @@ class LivePipeline:
                 ref = transform_boxes(T, box[None])[0]
                 ax, ay = (box[0] + box[2]) / 2, box[3]
                 state = self.dirs.update(ts, uid, name, (ax, ay), self._ground(uid, name, ref))
+            if state != GRAY and (box[3] - box[1] < self.min_box_h or quality < self.min_quality):
+                state = GRAY    # too small or too poorly seen to trust: uncertain, never wrong way
             state = self._shown(uid, state, ts)
             res.items.append((uid, name, box, state))
             counts["bus" if name == "bus" else "people"][state] += 1

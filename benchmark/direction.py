@@ -136,6 +136,7 @@ class ClassParams:
     confirm_red_s: float = 0.6     # candidate must persist this long before RED
     confirm_green_s: float = 0.3
     release_s: float = 0.5         # time of contrary evidence to leave a state
+    min_straightness: float = 0.0  # net distance / path walked in the window (jitter scores low)
 
 
 PEOPLE = ClassParams(window_s=1.5, min_disp_m=1.5, min_age_s=1.0)
@@ -222,6 +223,11 @@ class DirectionClassifier:
         dist = float(np.linalg.norm(d))
         if dist < p.min_disp_m:
             return GRAY
+        if p.min_straightness > 0:
+            pts = [h[1] for h in st.hist if h[0] >= past[-1][0]]
+            walked = sum(float(np.linalg.norm(b - a)) for a, b in zip(pts, pts[1:]))
+            if dist / max(walked, 1e-6) < p.min_straightness:
+                return GRAY
         if zone.mode == "both":
             return GREEN
         a = zone.allowed(p1)

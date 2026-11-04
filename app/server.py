@@ -31,7 +31,8 @@ MAX_UPLOAD = 20 * 1024 ** 3
 STREAM_WIDTH = 1280
 
 MODELS = {
-    "dfine-m-obj2coco": {"label": "Most people found (D-FINE M)", "license": "Apache-2.0"},
+    "dfine-m-obj2coco": {"label": "Standard (D-FINE M)", "license": "Apache-2.0"},
+    "dfine-s-tiled": {"label": "More far-away people, about 4x slower", "license": "Apache-2.0"},
     "dfine-s-obj2coco": {"label": "Faster, fewer people (D-FINE S)", "license": "Apache-2.0"},
     "wesjos-v8s-head": {"label": "Heads only, no buses (AGPL)", "license": "AGPL-3.0"},
 }
@@ -54,16 +55,21 @@ class DetectorPool:
         self.current = (None, None)
 
     def get(self, model_id: str):
-        from benchmark.detectors import build
+        from benchmark.detectors import TiledDetector, build
         from benchmark.download import fetch, load_registry, local_path
         with self.lock:
             if self.current[0] != model_id:
-                cand = next(c for c in load_registry()["candidates"] if c["id"] == model_id)
+                tiled = model_id == "dfine-s-tiled"
+                wanted = "dfine-s-obj2coco" if tiled else model_id
+                cand = next(c for c in load_registry()["candidates"] if c["id"] == wanted)
                 path = local_path(cand["source"], cand)
                 if not path.exists():
                     fetch(cand["source"], cand)
                 self.current = (None, None)
-                self.current = (model_id, build(cand, imgsz=640, device=best_device(), conf=0.3))
+                det = build(cand, imgsz=640, device=best_device(), conf=0.2)
+                if tiled:   # the whole frame, in overlapping pieces at full resolution
+                    det = TiledDetector(det, (0, 0, 100000, 100000), tile=640, overlap=0.15, iou=0.5)
+                self.current = (model_id, det)
             return self.current[1]
 
 
@@ -189,8 +195,11 @@ class Run(threading.Thread):
                     break
                 t0 = time.perf_counter()
                 if pipe is None:
+                    # keep a lost track for about 2 s, whatever rate frames are being checked at
+                    rate = fps if o.get("every_frame") else min(fps, 10.0)
                     pipe = LivePipeline(det, self.arrow, frame.shape, camera_moves=o["camera_moves"],
-                                        min_disp_m=o["min_disp_m"])
+                                        min_disp_m=o["min_disp_m"], min_box_h=o["min_box_h"],
+                                        max_age=max(5, int(2 * rate)))
                     wall0 = t0
                 res = pipe.process(frame, ts)
                 self.t = ts
@@ -273,13 +282,16 @@ class App:
         min_disp = float(body.get("min_disp_m", 1.5))
         if not 0.25 <= min_disp <= 5:
             raise ValueError("minimum movement must be between 0.25 and 5 m")
+        min_box_h = float(body.get("min_box_h", 100))
+        if not 0 <= min_box_h <= 500:
+            raise ValueError("smallest person must be between 0 and 500 pixels")
         start = max(0.0, float(body.get("start") or 0.0))
         end = body.get("end")
         end = None if end in (None, "") else float(end)
         if end is not None and end <= start:
             raise ValueError("the end time must be after the start time")
         opts = {"model": model, "arrow": clean_arrow(body.get("arrow"), info["width"], info["height"]),
-                "camera_moves": bool(body.get("camera_moves", True)), "min_disp_m": min_disp,
+                "camera_moves": bool(body.get("camera_moves", True)), "min_disp_m": min_disp, "min_box_h": min_box_h,
                 "every_frame": bool(body.get("every_frame", False)), "start": start, "end": end,
                 "stop_at_cuts": bool(body.get("stop_at_cuts", True))}
         if opts["arrow"] is None:

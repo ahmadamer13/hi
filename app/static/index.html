@@ -132,6 +132,9 @@ input[type=range]{width:100%;accent-color:var(--marigold)}
       <label class="field"><span>Movement needed: <b id="minOut">1.5 m</b></span>
         <input id="min" type="range" min="0.25" max="3" step="0.25" value="1.5">
         <small>How far someone must move before being marked. Lower shows more green and red, and more false alarms. Without calibration, distances are rough estimates and often too short.</small></label>
+      <label class="field"><span>Smallest person to judge: <b id="sizeOut">100 px</b></span>
+        <input id="size" type="range" min="40" max="240" step="10" value="100">
+        <small>Smaller or far-away people stay gray because their movement can't be measured reliably. Lower this for wide shots. Sizes are in the video's own pixels.</small></label>
       <div class="times">
         <label class="field"><span>Start (seconds)</span><input id="start" type="number" min="0" step="1" value="0"></label>
         <label class="field"><span>End (seconds)</span><input id="end" type="number" min="0" step="1" placeholder="Full video"></label>
@@ -267,6 +270,7 @@ let frameTimer;
 function loadFrame(t){ pic.src = `/api/frame?video=${S.video}&t=${t}`; $('scrubOut').textContent = clock(t); }
 $('scrub').addEventListener('input', e => { $('scrubOut').textContent = clock(+e.target.value); clearTimeout(frameTimer); frameTimer=setTimeout(()=>loadFrame(+e.target.value),120); });
 $('min').addEventListener('input', e => { $('minOut').textContent = `${(+e.target.value)} m`; });
+$('size').addEventListener('input', e => { $('sizeOut').textContent = `${e.target.value} px`; });
 $('otherVideo').addEventListener('click', () => {
   S.video=null; S.arrow=null; $('file').value=''; $('setup').hidden=true; $('screen').hidden=true; $('timeRow').style.display='none';
   drop.hidden=false; setNote('Add a video to start.');
@@ -283,7 +287,7 @@ $('startBtn').addEventListener('click', async () => {
   showErr('');
   const end = $('end').value;
   try{
-    await api('/api/start', {video:S.video, arrow:S.arrow, model:$('model').value, min_disp_m:+$('min').value,
+    await api('/api/start', {video:S.video, arrow:S.arrow, model:$('model').value, min_disp_m:+$('min').value, min_box_h:+$('size').value,
       camera_moves:$('moves').checked, stop_at_cuts:$('cuts').checked, every_frame:$('every').checked,
       start:+$('start').value||0, end: end==='' ? null : +end});
   }catch(e){ showErr(e.message); return; }
