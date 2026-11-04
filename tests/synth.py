@@ -18,14 +18,14 @@ W, H, FPS, M_PER_PX = 960, 540, 25, 0.05
 
 
 def make_clip(root: Path, clip_id="synth01", n_frames=125, seed=0, density="medium", date="2026-01-01",
-              time_block="am", split="test"):
+              time_block="am", split="test", speed=26):
     rng = np.random.default_rng(seed)
     agents = []
     tid = 1
     for k in range(6):   # with-flow walkers
-        agents.append(dict(tid=tid, cls="person", x=60 + 40 * k, y=80 + 60 * k, vx=+26, w=24, h=60, dir="with")); tid += 1
+        agents.append(dict(tid=tid, cls="person", x=60 + 40 * k, y=80 + 60 * k, vx=+speed, w=24, h=60, dir="with")); tid += 1
     for k in range(3):   # against-flow walkers
-        agents.append(dict(tid=tid, cls="person", x=880 - 40 * k, y=110 + 90 * k, vx=-26, w=24, h=60, dir="against")); tid += 1
+        agents.append(dict(tid=tid, cls="person", x=880 - 40 * k, y=110 + 90 * k, vx=-speed, w=24, h=60, dir="against")); tid += 1
     for k in range(2):   # standing
         agents.append(dict(tid=tid, cls="person", x=480 + 60 * k, y=440, vx=0, w=24, h=60, dir="static")); tid += 1
     agents.append(dict(tid=tid, cls="bus", x=40, y=360, vx=+60, w=200, h=90, dir="with"))

@@ -316,3 +316,20 @@ def test_end_to_end_trackers_and_point_model(tmp_path, trk):
         assert dp["ww_fp"] == 0 and dp["ww_recall"] == 1.0, (trk, type(det).__name__, dp)
         assert res["detection"]["all"]["person"]["loc_recall@op"] > 0.95
         assert res["tracking_people"]["all"]["HOTA_mean_over_clips"] > 0.5
+
+
+# ------------------------------------------------------------------ preview demo
+def test_demo_preview_flags_only_against_walkers(tmp_path):
+    from benchmark.demo import SelfScaleCamera, run
+    from benchmark.ocsort import OCSort
+    import csv as _csv
+    make_clip(tmp_path, speed=60, n_frames=150)       # 60 px/s on a 60 px tall person ~ 1.7 m/s
+    lab = tmp_path / "labels" / "synth01"
+    det = OracleDetector(lab / "gt.csv", jitter_px=1.0)
+    arrow = [100, 270, 800, 270]                         # allowed: left -> right
+    summ = run(tmp_path / "clips" / "synth01.avi", det, SelfScaleCamera(arrow, (540, 960)), OCSort(),
+               tmp_path / "out.mp4", arrow=arrow, log=lambda *_: None)
+    against = {int(r["track_id"]) for r in _csv.DictReader(open(lab / "directions.csv")) if r["direction"] == "against"}
+    assert summ["wrong_way_tracks"] == len(against) == 3
+    assert (tmp_path / "out.mp4").stat().st_size > 10_000
+    assert all(e["first_red_s"] <= 3.0 for e in summ["events"])   # people decision latency ~2-3 s

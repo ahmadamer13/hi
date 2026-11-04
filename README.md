@@ -42,3 +42,14 @@ python -m benchmark.download         # ~550 MB of candidate weights into models/
 ```
 
 On the target GPU box use `Dockerfile.benchmark`; the exact commands are in §7 of the report.
+
+## Try it on your own video (PREVIEW)
+
+```bash
+python -m benchmark.demo --video my_clip.mp4 --first-frame-only        # saves my_clip_wrongway_frame0.jpg
+python -m benchmark.demo --video my_clip.mp4 --direction 960,900,960,300 --max-seconds 30
+```
+`--direction x1,y1,x2,y2` is an arrow in image pixels pointing the allowed way (read the numbers off
+the saved first frame). Output: `my_clip_wrongway.mp4` (green/red/gray boxes + counters) and
+`my_clip_wrongway.csv` (every wrong-way track and when it turned red).
+This preview is not validated: it is for looking at behaviour, not for accuracy claims.
