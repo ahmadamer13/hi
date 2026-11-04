@@ -164,7 +164,8 @@ def main(argv=None):
 
     reg = {c["id"]: c for c in load_registry()["candidates"]}
     people = build(reg[a.people_model], imgsz=a.imgsz, device=a.device, conf=0.1)
-    members = [(people, tuple(c for c in people.classes if c in ("head", "person")))]
+    keep = ("head", "person") if a.bus_model == "none" else ("head", "person", "bus")
+    members = [(people, tuple(c for c in people.classes if c in keep))]
     if a.bus_model != "none" and "bus" not in people.classes:
         members.append((build(reg[a.bus_model], imgsz=a.imgsz, device=a.device, conf=0.1), ("bus",)))
     det = EnsembleDetector(members)
