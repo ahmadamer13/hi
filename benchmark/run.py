@@ -232,7 +232,7 @@ def main(argv=None):
             speed = None
             for trk in args.trackers:
                 args.tracker_name = trk
-                rid = f"{run_id}|{trk}"
+                rid = f"{run_id} [{trk}]"
                 m = {**meta, "run_id": rid, "tracker": trk}
                 print(f"[run] {rid} on {len(clips)} clips")
                 res = evaluate_detector(det, clips, args, m)
@@ -240,7 +240,7 @@ def main(argv=None):
                 speed = speed or measure(det, frames, base_mem_mb=mem0)  # detector speed, tracker-independent
                 res["speed"] = speed
                 m.update(res)
-                (out / f"{rid.replace('/', '_').replace('|', '__')}.json").write_text(json.dumps(m, indent=2, default=float))
+                (out / f"{run_id.replace('/', '_')}__{trk}.json").write_text(json.dumps(m, indent=2, default=float))
                 print(f"[done] {rid}: {speed['fps']:.1f} FPS, "
                       f"dir_acc={res['direction_people']['all']['direction_accuracy']}")
 
