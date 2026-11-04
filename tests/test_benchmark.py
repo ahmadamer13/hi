@@ -333,3 +333,247 @@ def test_demo_preview_flags_only_against_walkers(tmp_path):
     assert summ["wrong_way_tracks"] == len(against) == 3
     assert (tmp_path / "out.mp4").stat().st_size > 10_000
     assert all(e["first_red_s"] <= 3.0 for e in summ["events"])   # people decision latency ~2-3 s
+
+
+# ------------------------------------------------------------------ camera motion / live engine / app
+def _scene(seed=1, size=(540, 960)):
+    import cv2
+    rng = np.random.default_rng(seed)
+    t = (rng.random(size) * 255).astype(np.uint8)
+    return cv2.cvtColor(cv2.GaussianBlur(t, (0, 0), 3) * 3, cv2.COLOR_GRAY2BGR)
+
+
+def _shift(img, dx, dy):
+    import cv2
+    return cv2.warpAffine(img, np.float32([[1, 0, dx], [0, 1, dy]]), (img.shape[1], img.shape[0]), borderMode=cv2.BORDER_REFLECT)
+
+
+def test_camera_motion_recovers_pan_and_detects_cut():
+    from benchmark.stabilize import CameraMotion, transform_points
+    cm = CameraMotion()
+    a = _scene()
+    assert cm.update(a).cut            # first frame starts a shot
+    for k in range(1, 6):
+        s = cm.update(_shift(a, 6 * k, -3 * k))
+        assert s.ok and not s.cut
+    # a point at x in the 5th frame was at x-30, y+15 in the reference frame
+    p = transform_points(s.T, [[400, 200]])[0]
+    assert abs(p[0] - 370) < 2.5 and abs(p[1] - 215) < 2.5
+    other = _scene(seed=2)[..., ::-1] // 2
+    assert cm.update(other).cut
+
+
+def test_camera_motion_ignores_points_inside_boxes():
+    """A moving block marked as a person must not be mistaken for camera motion."""
+    from benchmark.stabilize import CameraMotion, transform_points
+    cm = CameraMotion()
+    a = _scene()
+    box = np.array([[100, 100, 860, 440]], float)   # most of the frame is "crowd"
+    cm.update(a, box)
+    for k in range(1, 6):
+        f = a.copy()
+        f[100:440, 100:860] = _shift(a, 10 * k, 0)[100:440, 100:860]
+        s = cm.update(f, box)
+    assert abs(transform_points(s.T, [[50, 50]])[0][0] - 50) < 3
+
+
+class _Script(Detector):
+    """Person walking at a given image speed, optional camera pan added to every box."""
+    classes = {"person"}
+    name = "script"
+
+    def __init__(self, vx, pan=0.0):
+        self.vx, self.pan, self.f = vx, pan, 0
+
+    def __call__(self, img):
+        x = 300 + (self.vx + self.pan) * self.f
+        self.f += 1
+        return Detections(np.array([[x, 200, x + 24, 260]], np.float32), np.array([0.9], np.float32),
+                          np.array([CLS_ID["person"]], np.int32))
+
+
+def _play(det, arrow, frames=120, fps=25, pan=0.0, **kw):
+    from benchmark.live import LivePipeline
+    a = _scene()
+    p = LivePipeline(det, arrow, a.shape, **kw)
+    out = []
+    for i in range(frames):
+        out.append(p.process(_shift(a, pan * i, 0), i / fps))
+    return p, out
+
+
+def _states(results):
+    return [it[3] for r in results for it in r.items]
+
+
+def test_live_marks_against_and_with_walkers():
+    arrow = [100, 270, 800, 270]
+    _, res = _play(_Script(2.4), arrow)                  # with the arrow
+    assert "green" in _states(res) and "red" not in _states(res)
+    p, res = _play(_Script(-2.4), arrow)                 # against the arrow
+    assert "red" in _states(res) and "green" not in _states(res)
+    assert len(p.red_ids) == 1
+
+
+def test_live_panning_camera_does_not_make_a_standing_person_red():
+    """A standing person looks like a walker while the camera pans; correction must cancel it."""
+    arrow = [100, 270, 800, 270]
+    _, res = _play(_Script(0.0, pan=-2.4), arrow, pan=-2.4, camera_moves=True)
+    assert "red" not in _states(res)
+    # Without correction the same scene IS a false red, which is why the correction exists.
+    _, res = _play(_Script(0.0, pan=-2.4), arrow, pan=-2.4, camera_moves=False)
+    assert "red" in _states(res)
+
+
+def test_live_cut_resets_motion_and_no_arrow_is_all_gray():
+    from benchmark.live import LivePipeline
+    a, b = _scene(), _scene(seed=5)[..., ::-1] // 2
+    p = LivePipeline(_Script(-2.4), [100, 270, 800, 270], a.shape)
+    for i in range(80):
+        r = p.process(a, i / 25)
+    assert "red" in _states([r])
+    assert p.process(b, 80 / 25).cut
+    assert p.dirs.tracks == {} or all(s.state == "gray" for s in p.dirs.tracks.values())
+    _, res = _play(_Script(-2.4), None)
+    assert set(_states(res)) <= {"gray"}
+
+
+def _serve(tmp_path, detector):
+    import threading
+    from app.server import serve
+    httpd, app = serve(0, lambda model: detector, tmp_path / "up")
+    port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd, app, f"http://127.0.0.1:{port}"
+
+
+def _req(url, method="GET", data=None, headers=None):
+    import json as _json
+    import urllib.error
+    import urllib.request
+    body = _json.dumps(data).encode() if isinstance(data, dict) else data
+    rq = urllib.request.Request(url, data=body, method=method, headers=headers or {})
+    try:
+        with urllib.request.urlopen(rq, timeout=20) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+def test_app_full_flow_upload_draw_watch(tmp_path):
+    import json as _json
+    import time as _t
+    make_clip(tmp_path, speed=60, n_frames=100)
+    video = (tmp_path / "clips" / "synth01.avi").read_bytes()
+    det = OracleDetector(tmp_path / "labels" / "synth01" / "gt.csv", jitter_px=1.0)
+    httpd, app, base = _serve(tmp_path, det)
+    try:
+        code, html = _req(base + "/")
+        assert code == 200 and b"Wrong-way watch" in html
+        code, body = _req(base + "/api/upload?name=../../evil.avi", "PUT", video)
+        assert code == 200
+        info = _json.loads(body)
+        assert (tmp_path / "up" / f"{info['video']}.avi").exists() and not (tmp_path / "evil.avi").exists()
+        code, jpg = _req(f"{base}/api/frame?video={info['video']}&t=1")
+        assert code == 200 and jpg[:2] == b"\xff\xd8"
+        # no arrow -> refused with a plain reason
+        code, body = _req(base + "/api/start", "POST", {"video": info["video"], "arrow": None})
+        assert code == 400 and b"draw" in body
+        code, _ = _req(base + "/api/start", "POST", {"video": info["video"], "arrow": [100, 270, 800, 270],
+                                                      "every_frame": True, "camera_moves": False})
+        assert code == 200
+        for _ in range(200):
+            s = _json.loads(_req(base + "/api/status")[1])
+            if s["state"] in ("finished", "error"):
+                break
+            _t.sleep(0.05)
+        assert s["state"] == "finished", s
+        assert s["frames_done"] == 100 and len(s["events"]) == 3
+        code, thumb = _req(f"{base}/api/thumb?id={s['events'][0]['id']}")
+        assert code == 200 and thumb[:2] == b"\xff\xd8"
+        assert _req(base + "/api/events.csv")[1].count(b"\n") == 4
+    finally:
+        httpd.shutdown()
+
+
+def test_app_refuses_other_sites_and_non_videos(tmp_path):
+    httpd, app, base = _serve(tmp_path, None)
+    try:
+        assert _req(base + "/api/status", headers={"Origin": "https://evil.example"})[0] == 403
+        assert _req(base + "/api/status", headers={"Host": "evil.example"})[0] == 403
+        code, body = _req(base + "/api/upload?name=x.exe", "PUT", b"MZ")
+        assert code == 400 and b"not a video" in body
+        code, body = _req(base + "/api/upload?name=x.mp4", "PUT", b"not really a video")
+        assert code == 400 and b"could not be opened" in body
+        assert not list((tmp_path / "up").iterdir())
+    finally:
+        httpd.shutdown()
+
+
+def test_app_rejects_bad_arrows():
+    from app.server import clean_arrow
+    assert clean_arrow(None, 100, 100) is None
+    assert clean_arrow([1, 1, 50, 50], 100, 100) == [1.0, 1.0, 50.0, 50.0]
+    for bad in ([1, 1, 2, 2], [1, 1, 500, 50], "x", [1, 2, 3]):
+        with pytest.raises((ValueError, TypeError)):
+            clean_arrow(bad, 100, 100)
+
+
+def test_app_uses_next_port_when_taken(tmp_path):
+    import socket
+    from app.server import serve
+    blocker = socket.socket()
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen()
+    port = blocker.getsockname()[1]
+    httpd, _ = serve(port, lambda m: None, tmp_path / "up")
+    try:
+        assert httpd.server_address[0] == "127.0.0.1" and httpd.server_address[1] != port
+    finally:
+        httpd.server_close()
+        blocker.close()
+
+
+def test_app_stream_does_not_spin_while_model_loads(tmp_path):
+    """Regression: the stream loop used 100% CPU before the first frame, starving model loading."""
+    import json as _json
+    import socket
+    import threading
+    import time as _t
+    make_clip(tmp_path, n_frames=10)
+    release = threading.Event()
+
+    def slow_factory(model):
+        release.wait(5)
+        return OracleDetector(tmp_path / "labels" / "synth01" / "gt.csv")
+
+    httpd, app = __import__("app.server", fromlist=["serve"]).serve(0, slow_factory, tmp_path / "up")
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+    base = f"http://127.0.0.1:{port}"
+    try:
+        info = _json.loads(_req(base + "/api/upload?name=a.avi", "PUT", (tmp_path / "clips" / "synth01.avi").read_bytes())[1])
+        assert _req(base + "/api/start", "POST", {"video": info["video"], "arrow": [10, 10, 500, 10], "every_frame": True})[0] == 200
+        s = socket.create_connection(("127.0.0.1", port))
+        s.sendall(f"GET /stream HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n\r\n".encode())
+        _t.sleep(0.2)
+        t0 = _t.process_time()
+        _t.sleep(1.0)
+        assert _t.process_time() - t0 < 0.3     # a spinning loop would burn about a full core here
+        release.set()
+        s.close()
+    finally:
+        release.set()
+        httpd.shutdown()
+
+
+def test_live_mark_is_held_briefly_then_released():
+    from benchmark.live import LivePipeline
+    a = _scene()
+    p = LivePipeline(_Script(0), [100, 270, 800, 270], a.shape, hold_mark_s=2.0)
+    assert p._shown(1, "red", 10.0) == "red"
+    assert p._shown(1, "gray", 11.5) == "red"       # still visible
+    assert p._shown(1, "gray", 12.5) == "gray"      # released
+    assert p._shown(2, "gray", 10.0) == "gray"      # never decided: stays gray
+    p._shown(3, "red", 10.0)
+    assert p._shown(3, "green", 10.5) == "green"    # a new decision wins at once

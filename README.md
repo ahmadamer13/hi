@@ -20,6 +20,8 @@ benchmark/          Phase 0 harness
   tracker.py        ByteTrack (per class, track-quality score)
   ocsort.py         OC-SORT (ORU + OCM + OCR + BYTE pass)
   points.py         point-based head models (P2PNet) -> pseudo boxes
+  stabilize.py      camera-motion estimate and cut detection (background pixels only)
+  live.py           frame-by-frame engine used by the web app
   direction.py      homography, direction fields (arrow/polyline/circular/both), reference classifier
   metrics_det.py    AP / AR / FP-per-frame with ignore regions
   metrics_track.py  MOTA / IDF1 / IDSW, direction accuracy, wrong-way P/R/F1
@@ -27,6 +29,7 @@ benchmark/          Phase 0 harness
   run.py            benchmark runner        report.py   comparison table + Pareto + recommendation
   trt/export.py     FP16 TensorRT engine build (run on the target GPU)
   finetune/         clip sampling, label conversion, day/time-block split, fine-tuning
+app/                          local web app (upload, draw arrow, watch live)
 configs/camera.example.json   calibration + zones example
 data/README.md                dataset format       docs/labeling_guide.md   annotation rules
 tests/                        unit + synthetic end-to-end tests
@@ -37,11 +40,20 @@ tests/                        unit + synthetic end-to-end tests
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements-benchmark.txt
-python -m pytest -q tests            # 30 tests, CPU, ~8 s
+python -m pytest -q tests            # CPU, about 15 s
 python -m benchmark.download         # ~550 MB of candidate weights into models/
 ```
 
 On the target GPU box use `Dockerfile.benchmark`; the exact commands are in §7 of the report.
+
+## Watch a video live (web app)
+
+```bash
+python -m app.server        # then open the address it prints, usually http://localhost:8765
+```
+Add a video, drag an arrow in the allowed direction, and press Start watching. Green, red and gray boxes
+appear live, with a picture of everyone marked wrong way. It runs only on this computer. When the camera view
+changes it pauses and asks for a new arrow. Accuracy is not measured yet: check each red mark yourself.
 
 ## Try it on your own video (PREVIEW)
 

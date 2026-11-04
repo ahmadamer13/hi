@@ -99,7 +99,7 @@ def run(video, det, cam, tracker, out_path, arrow=None, stride=1, max_seconds=No
             break
         t0 = time.perf_counter()
         d = det(frame)
-        tracks = tracker.update(fi, d.boxes, d.scores, d.classes)
+        tracks = tracker.update(n, d.boxes, d.scores, d.classes)  # consecutive count, also with --stride
         items = []
         if tracks:
             tb = np.array([t[2] for t in tracks])

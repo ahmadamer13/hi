@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wrong-way watch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --dusk:#1d2933; --dusk-deep:#141d25; --dusk-lift:#2a3844; --line:#3b4b58;
+  --ihram:#f4f6f3; --soft:#b9c4cc;
+  --marigold:#f5b81c; --green:#3fce77; --red:#ef3e42; --gray:#a9b2ba;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--dusk);color:var(--ihram);
+  font:16px/1.45 "Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif}
+h1,h2,p{margin:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--marigold);outline-offset:2px}
+
+.app{display:grid;grid-template-columns:minmax(0,1fr) 320px;grid-template-rows:auto minmax(0,1fr);height:100vh}
+header{grid-column:1/-1;display:flex;align-items:baseline;gap:16px;padding:12px 20px;border-bottom:1px solid var(--line)}
+h1{font-size:20px;font-weight:700}
+.step-note{color:var(--soft)}
+
+.stage{flex:1;position:relative;background:var(--dusk-deep);display:flex;align-items:center;justify-content:center;min-height:0;min-width:0;overflow:hidden}
+.screen{position:relative;line-height:0;max-width:100%;max-height:100%}
+.screen img{display:block;max-width:100%;max-height:calc(100vh - 150px);user-select:none;-webkit-user-drag:none}
+#draw{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none}
+#draw.off{display:none}
+
+.drop{width:min(620px,86%);padding:56px 32px;border:2px dashed var(--line);border-radius:14px;text-align:center;cursor:pointer;background:none;display:block}
+.drop:hover,.drop.over{border-color:var(--marigold)}
+.drop strong{display:block;font-size:26px;margin-bottom:6px}
+.drop span{color:var(--soft)}
+
+.time-row{display:none;gap:12px;align-items:center;padding:10px 20px;background:var(--dusk);border-top:1px solid var(--line)}
+.time-row input[type=range]{flex:1}
+.time-row output{min-width:92px;text-align:right;font-variant-numeric:tabular-nums}
+.below{display:flex;flex-direction:column;min-height:0;min-width:0}
+
+aside{border-left:1px solid var(--line);padding:18px;overflow:auto;display:flex;flex-direction:column;gap:20px}
+aside h2{font-size:16px;font-weight:700;margin-bottom:8px}
+.hint{color:var(--soft);font-size:15px}
+.field{display:block;margin-bottom:14px}
+.field>span{display:block;margin-bottom:4px}
+.field small{display:block;color:var(--soft);font-size:14px;margin-top:3px}
+select{width:100%;padding:8px;background:var(--dusk-lift);border:1px solid var(--line);border-radius:6px}
+input[type=range]{width:100%;accent-color:var(--marigold)}
+.times{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.times input{width:100%;padding:8px;background:var(--dusk-lift);border:1px solid var(--line);border-radius:6px}
+.check{display:flex;gap:8px;align-items:flex-start;margin-bottom:10px}
+.check input{margin-top:5px;accent-color:var(--marigold)}
+.btn{width:100%;padding:12px;border-radius:8px;border:1px solid var(--line);background:var(--dusk-lift);cursor:pointer;font-weight:700}
+.btn:hover{border-color:var(--ihram)}
+.btn.primary{background:var(--marigold);border-color:var(--marigold);color:#1b1500}
+.btn.primary:hover{background:#ffcb45}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-row{display:flex;gap:8px}
+
+.tally{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.tally div{border-top:5px solid}
+.tally b{display:block;font-size:42px;line-height:1.1;font-variant-numeric:tabular-nums;margin-top:4px}
+.tally span{color:var(--soft);font-size:14px}
+.tally .t-green{border-color:var(--green)} .tally .t-red{border-color:var(--red)} .tally .t-gray{border-color:var(--gray)}
+.tally .t-red b{color:var(--red)}
+.busline{margin-top:10px;color:var(--soft)}
+.meter{color:var(--soft);font-size:14px;font-variant-numeric:tabular-nums}
+.warn{color:var(--marigold);font-size:15px}
+
+.reds{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.reds figure{margin:0;border-bottom:3px solid var(--red)}
+.reds img{width:100%;height:92px;object-fit:cover;display:block}
+.reds figcaption{font-size:13px;color:var(--soft);padding:2px 0;font-variant-numeric:tabular-nums}
+
+.banner{position:absolute;left:50%;top:14px;transform:translateX(-50%);width:min(560px,92%);background:var(--dusk);border:2px solid var(--marigold);border-radius:10px;padding:12px 14px;line-height:1.4;z-index:2}
+.banner p{margin-bottom:10px}
+.banner .btn{padding:8px}
+.toast{padding:10px 12px;border-left:4px solid var(--red);background:var(--dusk-lift)}
+.loading{position:absolute;color:var(--soft)}
+[hidden]{display:none!important}
+
+@media (max-width:860px){
+  .app{grid-template-columns:1fr;grid-template-rows:auto auto auto;height:auto}
+  aside{border-left:0;border-top:1px solid var(--line)}
+  .stage{min-height:52vw}
+  .screen img{max-height:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Wrong-way watch</h1>
+    <p class="step-note" id="note" role="status">Add a video to start.</p>
+  </header>
+
+  <div class="below">
+    <div class="stage" id="stage">
+      <label class="drop" id="drop" tabindex="0">
+        <strong>Drop a video here</strong>
+        <span id="dropSub">or choose a file. It stays on this computer.</span>
+        <input id="file" type="file" accept="video/*,.mkv,.ts" hidden>
+      </label>
+      <div class="screen" id="screen" hidden>
+        <img id="pic" alt="Video frame">
+        <canvas id="draw"></canvas>
+      </div>
+      <div class="banner" id="viewBanner" hidden>
+        <p><strong>The camera view changed.</strong> Your arrow may not fit this view, so the video is paused. Drag a new arrow on the picture, or choose below.</p>
+        <div class="btn-row">
+          <button class="btn" id="keepArrow">Keep my arrow</button>
+          <button class="btn" id="noArrow">Mark everyone gray here</button>
+        </div>
+      </div>
+    </div>
+    <div class="time-row" id="timeRow">
+      <label for="scrub">Find a frame to draw on</label>
+      <input id="scrub" type="range" min="0" step="0.5" value="0">
+      <output id="scrubOut">0:00</output>
+    </div>
+  </div>
+
+  <aside>
+    <section id="setup" hidden>
+      <h2>Set up</h2>
+      <p class="hint" id="drawHint" style="margin-bottom:14px">Drag on the picture from where people should come from to where they should go.</p>
+      <label class="field"><span>Detection model</span><select id="model"></select></label>
+      <label class="field"><span>Movement needed: <b id="minOut">1.5 m</b></span>
+        <input id="min" type="range" min="0.25" max="3" step="0.25" value="1.5">
+        <small>How far someone must move before being marked. Lower shows more green and red, and more false alarms. Without calibration, distances are rough estimates and often too short.</small></label>
+      <div class="times">
+        <label class="field"><span>Start (seconds)</span><input id="start" type="number" min="0" step="1" value="0"></label>
+        <label class="field"><span>End (seconds)</span><input id="end" type="number" min="0" step="1" placeholder="Full video"></label>
+      </div>
+      <label class="check"><input id="moves" type="checkbox" checked><span>The camera moves or zooms. Turn this off for a fixed camera.</span></label>
+      <label class="check"><input id="cuts" type="checkbox" checked><span>Pause when the camera view changes</span></label>
+      <label class="check"><input id="every" type="checkbox"><span>Check every frame. Slower than real time, but tracks better.</span></label>
+      <button class="btn primary" id="startBtn" disabled>Start watching</button>
+      <button class="btn" id="otherVideo" style="margin-top:8px">Choose another video</button>
+    </section>
+
+    <section id="live" hidden>
+      <div class="tally" aria-live="off">
+        <div class="t-green"><b id="cGreen">0</b><span>right way</span></div>
+        <div class="t-red"><b id="cRed">0</b><span>wrong way</span></div>
+        <div class="t-gray"><b id="cGray">0</b><span>not sure</span></div>
+      </div>
+      <p class="hint" style="margin-top:8px">People being tracked right now, not the whole crowd.</p>
+      <p class="busline" id="busLine">Buses in view: none</p>
+      <p class="meter" id="meter" style="margin-top:10px"></p>
+      <p class="warn" id="camWarn" hidden style="margin-top:6px">Camera movement is unclear, so people are held at gray.</p>
+      <div class="btn-row" style="margin-top:14px">
+        <button class="btn" id="stopBtn">Stop</button>
+      </div>
+      <button class="btn primary" id="againBtn" hidden style="margin-top:8px">Set up again</button>
+    </section>
+
+    <section id="redsBox" hidden>
+      <h2 id="redsTitle">Marked wrong way</h2>
+      <p class="hint" id="redsEmpty">No one so far. Gray means the system is not sure, not that everyone is right.</p>
+      <div class="reds" id="reds"></div>
+      <a id="csv" class="hint" href="/api/events.csv" hidden style="display:inline-block;margin-top:10px;color:var(--ihram)">Download this list as CSV</a>
+    </section>
+
+    <p class="toast" id="err" role="alert" hidden></p>
+    <p class="hint" id="caveat" hidden>Preview only. Accuracy has not been measured on labeled video, so check each red mark yourself.</p>
+  </aside>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const S = {video:null, info:null, arrow:null, mode:'upload', drag:null, stream:false, seen:0, poll:null};
+
+function setNote(t){ $('note').textContent = t; }
+function showErr(t){ $('err').textContent = t; $('err').hidden = !t; }
+const clock = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+
+async function api(path, body){
+  const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body||{})});
+  const d = await r.json().catch(()=>({error:'The app sent back an unreadable answer.'}));
+  if(!r.ok) throw new Error(d.error || 'The request failed.');
+  return d;
+}
+
+/* ---------- upload ---------- */
+const drop = $('drop');
+drop.addEventListener('keydown', e => { if(e.key==='Enter'||e.key===' '){ e.preventDefault(); $('file').click(); }});
+['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => { if(e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); });
+$('file').addEventListener('change', e => { if(e.target.files[0]) upload(e.target.files[0]); });
+
+function upload(file){
+  showErr('');
+  const x = new XMLHttpRequest();
+  x.open('PUT', '/api/upload?name=' + encodeURIComponent(file.name));
+  x.upload.onprogress = e => { if(e.lengthComputable) $('dropSub').textContent = `Adding ${file.name}: ${Math.round(100*e.loaded/e.total)}%`; };
+  x.onload = () => {
+    let d = {}; try { d = JSON.parse(x.responseText); } catch(_){ d = {error:'The app sent back an unreadable answer.'}; }
+    $('dropSub').textContent = 'or choose a file. It stays on this computer.';
+    if(x.status !== 200){ showErr(d.error || 'The video could not be added.'); return; }
+    S.video = d.video; S.info = d; S.arrow = null; enterSetup();
+  };
+  x.onerror = () => { showErr('The upload stopped. Check that the app is still running, then try again.'); };
+  x.send(file);
+}
+
+/* ---------- drawing ---------- */
+const pic = $('pic'), canvas = $('draw');
+function fitCanvas(){
+  const r = pic.getBoundingClientRect();
+  canvas.width = Math.round(r.width*devicePixelRatio); canvas.height = Math.round(r.height*devicePixelRatio);
+  paint();
+}
+function toVideo(e){
+  const r = canvas.getBoundingClientRect();
+  const x = Math.min(1, Math.max(0, (e.clientX-r.left)/r.width));
+  const y = Math.min(1, Math.max(0, (e.clientY-r.top)/r.height));
+  return [x*S.info.width, y*S.info.height];
+}
+function paint(){
+  const g = canvas.getContext('2d');
+  g.clearRect(0,0,canvas.width,canvas.height);
+  const a = S.drag || S.arrow;
+  if(!a || !S.info) return;
+  const k = canvas.width/S.info.width;
+  const [x1,y1,x2,y2] = a.map(v=>v*k);
+  const dpr = devicePixelRatio, head = 26*dpr, ang = Math.atan2(y2-y1,x2-x1);
+  const pts = () => { g.beginPath(); g.moveTo(x1,y1); g.lineTo(x2,y2);
+    g.moveTo(x2,y2); g.lineTo(x2-head*Math.cos(ang-.45), y2-head*Math.sin(ang-.45));
+    g.moveTo(x2,y2); g.lineTo(x2-head*Math.cos(ang+.45), y2-head*Math.sin(ang+.45)); };
+  g.lineCap='round';
+  pts(); g.strokeStyle='rgba(20,29,37,.85)'; g.lineWidth=11*dpr; g.stroke();
+  pts(); g.strokeStyle='#f5b81c'; g.lineWidth=6*dpr; g.stroke();
+}
+canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); const p=toVideo(e); S.drag=[...p,...p]; paint(); });
+canvas.addEventListener('pointermove', e => { if(!S.drag) return; const p=toVideo(e); S.drag[2]=p[0]; S.drag[3]=p[1]; paint(); });
+canvas.addEventListener('pointerup', async e => {
+  if(!S.drag) return;
+  const a = S.drag; S.drag = null;
+  if(Math.hypot(a[2]-a[0], a[3]-a[1]) < 20){ paint(); return; }
+  S.arrow = a.map(v=>Math.round(v)); paint();
+  if(S.mode==='needs_arrow'){ await answer({arrow:S.arrow}); return; }
+  $('startBtn').disabled = false;
+  $('drawHint').textContent = 'Arrow set. Drag again to replace it.';
+  setNote('Check the arrow, then start watching.');
+});
+new ResizeObserver(fitCanvas).observe(pic);
+pic.addEventListener('load', fitCanvas);
+
+/* ---------- setup ---------- */
+function enterSetup(){
+  S.mode='setup'; S.stream=false;
+  drop.hidden=true; $('screen').hidden=false; $('setup').hidden=false; $('live').hidden=true; $('redsBox').hidden=true;
+  $('timeRow').style.display='flex'; canvas.classList.remove('off'); $('viewBanner').hidden=true; $('caveat').hidden=false;
+  $('startBtn').disabled = !S.arrow;
+  const dur = S.info.duration || 0;
+  $('scrub').max = dur; $('end').placeholder = dur ? `${Math.floor(dur)} (end)` : 'Full video';
+  loadFrame(+$('scrub').value);
+  setNote(S.arrow ? 'Check the arrow, then start watching.' : 'Drag on the picture to show the allowed direction.');
+}
+let frameTimer;
+function loadFrame(t){ pic.src = `/api/frame?video=${S.video}&t=${t}`; $('scrubOut').textContent = clock(t); }
+$('scrub').addEventListener('input', e => { $('scrubOut').textContent = clock(+e.target.value); clearTimeout(frameTimer); frameTimer=setTimeout(()=>loadFrame(+e.target.value),120); });
+$('min').addEventListener('input', e => { $('minOut').textContent = `${(+e.target.value)} m`; });
+$('otherVideo').addEventListener('click', () => {
+  S.video=null; S.arrow=null; $('file').value=''; $('setup').hidden=true; $('screen').hidden=true; $('timeRow').style.display='none';
+  drop.hidden=false; setNote('Add a video to start.');
+});
+
+fetch('/api/models').then(r=>r.json()).then(d=>{
+  for(const [id,m] of Object.entries(d.models)){
+    const o=document.createElement('option'); o.value=id; o.textContent=m.label; $('model').appendChild(o);
+  }
+});
+
+/* ---------- watching ---------- */
+$('startBtn').addEventListener('click', async () => {
+  showErr('');
+  const end = $('end').value;
+  try{
+    await api('/api/start', {video:S.video, arrow:S.arrow, model:$('model').value, min_disp_m:+$('min').value,
+      camera_moves:$('moves').checked, stop_at_cuts:$('cuts').checked, every_frame:$('every').checked,
+      start:+$('start').value||0, end: end==='' ? null : +end});
+  }catch(e){ showErr(e.message); return; }
+  S.mode='watch'; S.seen=0; $('reds').replaceChildren();
+  $('setup').hidden=true; $('live').hidden=false; $('redsBox').hidden=false; $('timeRow').style.display='none';
+  $('stopBtn').hidden=false; $('againBtn').hidden=true; $('redsEmpty').hidden=false; $('csv').hidden=true;
+  canvas.classList.add('off'); setNote('Loading the model. The first time can take a minute.');
+  pic.src = '/stream?' + Date.now();
+  clearInterval(S.poll); S.poll = setInterval(poll, 400); poll();
+});
+$('stopBtn').addEventListener('click', async () => { try{ await api('/api/stop'); }catch(e){ showErr(e.message); } });
+$('againBtn').addEventListener('click', () => { clearInterval(S.poll); enterSetup(); });
+
+async function answer(body){
+  try{ await api('/api/answer', body); }catch(e){ showErr(e.message); return; }
+  S.mode='watch'; $('viewBanner').hidden=true; canvas.classList.add('off');
+  pic.src = '/stream?' + Date.now();
+}
+$('keepArrow').addEventListener('click', () => answer({keep:true}));
+$('noArrow').addEventListener('click', () => { S.arrow=null; answer({arrow:null}); });
+
+async function poll(){
+  let s; try{ s = await (await fetch('/api/status')).json(); }catch(_){ setNote('The app stopped answering. Restart it to continue.'); clearInterval(S.poll); return; }
+  const p = s.counts ? s.counts.people : {green:0,red:0,gray:0};
+  $('cGreen').textContent=p.green; $('cRed').textContent=p.red; $('cGray').textContent=p.gray;
+  if(s.counts){ const b=s.counts.bus, n=b.green+b.red+b.gray;
+    $('busLine').textContent = n ? `Buses in view: ${b.green} right way, ${b.red} wrong way, ${b.gray} not sure` : 'Buses in view: none'; }
+  if(s.t!=null){
+    const skip = s.frames_done ? Math.round(100*s.frames_skipped/(s.frames_done+s.frames_skipped)) : 0;
+    $('meter').textContent = `${clock(s.t)}${s.duration?' of '+clock(s.duration):''}, checking ${s.fps} frames a second` + (s.live && skip ? `, skipping ${skip}% to stay live` : '');
+  }
+  $('camWarn').hidden = s.camera_ok !== false;
+  for(const e of (s.events||[]).slice(S.seen)){
+    const f=document.createElement('figure'), i=document.createElement('img'), c=document.createElement('figcaption');
+    i.src=`/api/thumb?id=${e.id}`; i.alt=`${e.class} ${e.track} marked wrong way at ${clock(e.t)}`;
+    c.textContent=`${clock(e.t)}, ${e.class==='bus'?'bus ':'#'}${e.track}`; f.append(i,c); $('reds').prepend(f);
+  }
+  S.seen=(s.events||[]).length;
+  $('redsEmpty').hidden=S.seen>0; $('csv').hidden=!S.seen;
+  $('redsTitle').textContent = S.seen ? `Marked wrong way: ${S.seen}` : 'Marked wrong way';
+
+  if(s.state==='running') setNote(s.arrow ? 'Watching. Check each red mark yourself.' : 'Watching this view without a direction, so everyone is gray.');
+  if(s.state==='needs_arrow' && S.mode!=='needs_arrow'){
+    S.mode='needs_arrow'; pic.src='/api/new_view_frame?'+Date.now();
+    canvas.classList.remove('off'); S.arrow=s.arrow; $('viewBanner').hidden=false; $('keepArrow').disabled=!s.arrow;
+    setNote(`Paused at ${clock(s.t)}. New camera view.`); paint();
+  }
+  if(['finished','stopped','error'].includes(s.state)){
+    clearInterval(S.poll);
+    $('stopBtn').hidden=true; $('againBtn').hidden=false;
+    if(s.state==='error'){ showErr('The video stopped because of an error. '+s.error); setNote('Stopped.'); }
+    else setNote(s.state==='finished' ? 'Finished.' : 'Stopped.');
+  }
+}
+</script>
+</body>
+</html>
