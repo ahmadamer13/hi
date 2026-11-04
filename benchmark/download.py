@@ -59,6 +59,8 @@ def local_path(spec: str, cand: dict | None = None) -> Path:
         return MODELS_DIR / repo.replace("/", "__") / fname
     if spec.startswith("ultralytics://"):
         return MODELS_DIR / spec[len("ultralytics://"):]
+    if spec.startswith("git://"):  # third-party code kept OUT of this repo, under models/ext/
+        return MODELS_DIR / "ext" / spec.rstrip("/").split("/")[-1].removesuffix(".git")
     raise ValueError(spec)
 
 
@@ -79,6 +81,11 @@ def fetch(spec: str, cand: dict) -> list[Path]:
             name = spec[len("ultralytics://"):]
             _http(f"https://github.com/ultralytics/assets/releases/download/v8.3.0/{name}", dst)
         return [dst]
+    if spec.startswith("git://"):
+        if not dst.exists():
+            url = "https://" + spec[len("git://"):]
+            subprocess.run(["git", "clone", "--depth", "1", url, str(dst)], check=True)
+        return sorted(p for p in dst.rglob("*.pth"))  # hash the weights, not the code
     if spec.startswith("gdrive://"):
         if not dst.exists():
             file_id = spec[len("gdrive://"):]

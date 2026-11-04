@@ -23,10 +23,16 @@ from .data import load_manifest, check_split_leakage, iter_frames, point_in_poly
 from .detectors import CLASSES, CLS_ID, TiledDetector, EnsembleDetector, build
 from .direction import CameraConfig, DirectionClassifier, anchor_points
 from .download import load_registry
-from .metrics_det import ClassAccumulator
+from .metrics_det import ClassAccumulator, PointAccumulator
 from .metrics_track import TrackEval
 from .speed import device_info, gpu_mem_used_mb, measure
+from .ocsort import OCSort
 from .tracker import ByteTrack
+
+TRACKERS = {
+    "bytetrack": lambda: ByteTrack(high_thr=0.5, low_thr=0.1, new_thr=0.6, buffer_frames=60),
+    "ocsort": lambda: OCSort(det_thr=0.5, low_thr=0.1, new_thr=0.6, max_age=60, delta_t=3, inertia=0.2),
+}
 
 PEOPLE_CLS = (CLS_ID["head"], CLS_ID["person"])
 VEH_CLS = (CLS_ID["bus"],)
@@ -35,6 +41,8 @@ VEH_CLS = (CLS_ID["bus"],)
 def evaluate_detector(det, clips, args, run_meta) -> dict:
     by_bucket: dict[str, dict[int, ClassAccumulator]] = defaultdict(
         lambda: {c: ClassAccumulator() for c in range(len(CLASSES))})
+    loc_bucket: dict[str, dict[int, PointAccumulator]] = defaultdict(
+        lambda: {c: PointAccumulator() for c in range(len(CLASSES))})
     track_people: dict[str, list] = defaultdict(list)
     track_bus: dict[str, list] = defaultdict(list)
     dir_people, dir_bus = defaultdict(list), defaultdict(list)
@@ -45,9 +53,10 @@ def evaluate_detector(det, clips, args, run_meta) -> dict:
     for clip in clips:
         clip.load_labels()
         cam = CameraConfig.load(clip.camera_config)
-        tracker = ByteTrack(**args.tracker)
+        tracker = TRACKERS[getattr(args, "tracker_name", "bytetrack")]()
         dircls = DirectionClassifier(cam)
-        te_p, te_b = TrackEval(), TrackEval()
+        # point models (P2PNet/PET) are matched by point-in-box; IoU would unfairly reject their small boxes
+        te_p, te_b = TrackEval(match="point" if getattr(det, "point_model", False) else "iou"), TrackEval()
         labeled = set(clip.labeled_frames)
         gt_first_t: dict[int, float] = {}
         pred_first_red: dict[int, float] = {}
@@ -71,8 +80,13 @@ def evaluate_detector(det, clips, args, run_meta) -> dict:
                     gm = gt[:, 1] == ci if len(gt) else np.zeros(0, bool)
                     for bucket in ("all", f"density={clip.density}", f"light={clip.lighting}",
                                    f"weather={clip.weather}"):
-                        by_bucket[bucket][ci].add(d.boxes[pm], d.scores[pm], gt[gm, 2:6] if len(gt) else np.zeros((0, 4)),
-                                                  gt[gm, 6] if len(gt) else None, ign_mask[pm])
+                        g_boxes = gt[gm, 2:6] if len(gt) else np.zeros((0, 4))
+                        g_ign = gt[gm, 6] if len(gt) else None
+                        by_bucket[bucket][ci].add(d.boxes[pm], d.scores[pm], g_boxes, g_ign, ign_mask[pm])
+                        # localisation: native points for point models, box centres otherwise
+                        pts = getattr(d, "points", centres)
+                        keep = pm & ~ign_mask
+                        loc_bucket[bucket][ci].add(pts[keep], d.scores[keep], g_boxes, g_ign)
 
             # ---------------------------------------------------------- tracking + direction
             tracks = tracker.update(fi, d.boxes, d.scores, d.classes)
@@ -139,10 +153,12 @@ def evaluate_detector(det, clips, args, run_meta) -> dict:
         idf1 = [t.summary()["IDF1"] for t in tes if t.gt_frames]
         return {"MOTA": 1 - (fn + fp + sw) / max(tp + fn, 1), "IDSW": sw, "n_gt_tracks": n_tracks,
                 "IDSW_per_100_gt_tracks": 100 * sw / max(n_tracks, 1),
-                "IDF1_mean_over_clips": float(np.mean(idf1)) if idf1 else None}
+                "IDF1_mean_over_clips": float(np.mean(idf1)) if idf1 else None,
+                "HOTA_mean_over_clips": float(np.mean([t.hota()["HOTA"] for t in tes if t.gt_frames]))
+                if any(t.gt_frames for t in tes) else None}
 
-    det_summary = {b: {CLASSES[c]: acc.summary(args.op_thr) for c, acc in accs.items()
-                       if CLASSES[c] in det.classes} for b, accs in by_bucket.items()}
+    det_summary = {b: {CLASSES[c]: {**acc.summary(args.op_thr), **loc_bucket[b][c].summary(args.op_thr)}
+                       for c, acc in accs.items() if CLASSES[c] in det.classes} for b, accs in by_bucket.items()}
     return {
         "detection": det_summary,
         "tracking_people": {b: agg_track(t) for b, t in track_people.items()},
@@ -171,9 +187,9 @@ def main(argv=None):
     ap.add_argument("--trt", action="store_true", help="ONNX models via TensorRT EP (FP16 with --half)")
     ap.add_argument("--conf", type=float, default=0.05, help="detector output threshold (low, for AP)")
     ap.add_argument("--op-thr", type=float, default=0.4, help="operating threshold for FP/frame")
+    ap.add_argument("--trackers", nargs="+", default=["bytetrack", "ocsort"], choices=sorted(TRACKERS))
     ap.add_argument("--out", default="results")
     args = ap.parse_args(argv)
-    args.tracker = {"high_thr": 0.5, "low_thr": 0.1, "new_thr": 0.6, "buffer_frames": 60}
 
     clips = load_manifest(args.manifest, args.split)
     if not clips:
@@ -213,14 +229,20 @@ def main(argv=None):
             meta = {"run_id": run_id, "model": mid, "imgsz": size, "tiled": tiled, "license": cand["license"],
                     "license_risk": cand["risk"], "device": dev, "half": args.half, "trt": args.trt,
                     "split": args.split, "n_clips": len(clips), "bus_from": None if "bus" in cand["classes"].values() else args.bus_model}
-            print(f"[run] {run_id} on {len(clips)} clips")
-            res = evaluate_detector(det, clips, args, meta)
-            frames = res.pop("_frames")
-            res["speed"] = measure(det, frames, base_mem_mb=mem0)
-            meta.update(res)
-            (out / f"{run_id.replace('/', '_')}.json").write_text(json.dumps(meta, indent=2, default=float))
-            print(f"[done] {run_id}: {res['speed']['fps']:.1f} FPS, "
-                  f"dir_acc={res['direction_people']['all']['direction_accuracy']}")
+            speed = None
+            for trk in args.trackers:
+                args.tracker_name = trk
+                rid = f"{run_id}|{trk}"
+                m = {**meta, "run_id": rid, "tracker": trk}
+                print(f"[run] {rid} on {len(clips)} clips")
+                res = evaluate_detector(det, clips, args, m)
+                frames = res.pop("_frames")
+                speed = speed or measure(det, frames, base_mem_mb=mem0)  # detector speed, tracker-independent
+                res["speed"] = speed
+                m.update(res)
+                (out / f"{rid.replace('/', '_').replace('|', '__')}.json").write_text(json.dumps(m, indent=2, default=float))
+                print(f"[done] {rid}: {speed['fps']:.1f} FPS, "
+                      f"dir_acc={res['direction_people']['all']['direction_accuracy']}")
 
 
 if __name__ == "__main__":

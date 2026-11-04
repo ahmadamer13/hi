@@ -42,6 +42,9 @@ def row(r: dict, bucket: str) -> dict:
         "AP50_people": _g(det, people_cls, "AP50"), "AR_people": _g(det, people_cls, "AR"),
         "AP50_bus": _g(det, "bus", "AP50"),
         "fp_per_frame": _g(det, people_cls, "fp_per_frame"),
+        "loc_f1": _g(det, people_cls, "loc_f1@op"),
+        "tracker": r.get("tracker", "bytetrack"),
+        "hota": _g(r, "tracking_people", bucket, "HOTA_mean_over_clips"),
         "idsw_per_100": _g(r, "tracking_people", bucket, "IDSW_per_100_gt_tracks"),
         "dir_acc": _g(r, "direction_people", bucket, "direction_accuracy"),
         "decided": _g(r, "direction_people", bucket, "decided_fraction"),
@@ -106,13 +109,13 @@ def render(results: list[dict], min_fps: float, margin: float) -> str:
         if all(r["dir_acc"] is None and r["AP50_people"] is None for r in rows):
             continue
         out += [f"## {bucket}", "",
-                "| run | license (risk) | people AP50 | people AR | bus AP50 | FP/frame | IDSW/100 trk | "
+                "| run | license (risk) | people AP50 | people AR | head loc F1 | bus AP50 | FP/frame | HOTA | IDSW/100 trk | "
                 "dir acc | decided | WW F1 | bus dir acc | FPS | p95 ms | GPU MB | device |",
-                "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+                "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for r in sorted(rows, key=lambda r: -(r["dir_acc"] or 0)):
             out.append(
                 f"| {r['run']} | {r['license']} ({r['risk']}) | {fmt(r['AP50_people'])} | {fmt(r['AR_people'])} | "
-                f"{fmt(r['AP50_bus'])} | {fmt(r['fp_per_frame'], 2)} | {fmt(r['idsw_per_100'], 1)} | "
+                f"{fmt(r['loc_f1'])} | {fmt(r['AP50_bus'])} | {fmt(r['fp_per_frame'], 2)} | {fmt(r['hota'])} | {fmt(r['idsw_per_100'], 1)} | "
                 f"{fmt(r['dir_acc'])} | {fmt(r['decided'], 2)} | {fmt(r['ww_f1'])} | {fmt(r['bus_dir_acc'])} | "
                 f"{fmt(r['fps'], 1)} | {fmt(r['lat_p95'], 1)} | {fmt(r['mem'], 0)} | {r['gpu']} |")
         out += ["", f"Pareto front (dir acc × FPS × license): {', '.join(pareto(rows))}", ""]

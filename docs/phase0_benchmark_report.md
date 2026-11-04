@@ -39,6 +39,9 @@ Per the spec, **Phase 1 has not been started** and should not start until the me
 | rtdetr-r18vd / r50vd | HF `PekingU/rtdetr_*` | COCO (person, bus, car, truck) | transformers | Apache-2.0 | **low** | COCO-trained, no head class: must be fine-tuned. **Default 300 queries caps detections at 300 per image**, which is below extreme-density head counts. Fine-tune with 900+ queries (`--queries`) or use tiling. |
 | rtdetrv2-r18vd | HF `PekingU/rtdetr_v2_r18vd` | COCO | transformers | Apache-2.0 | **low** | Same as above; the newer variant. |
 | yolo11s/m-coco | Ultralytics assets | COCO | .pt | AGPL-3.0 | high | Bus and person reference baseline. |
+| dfine-s / dfine-m-obj2coco *(g)* | HF `ustc-community/dfine-*-obj2coco` | COCO | transformers | Apache-2.0 | low | D-FINE (ICLR 2025), Objects365→COCO pretraining. Verified to run in the harness. Check the Objects365 data terms. |
+| p2pnet-shtecha *(point model)* | GitHub `TencentYoutuResearch/CrowdCounting-P2PNet` | head points | PyTorch | **academic research only** | **high** | Benchmark baseline for extreme density only. Code is cloned into `models/ext/`, not copied into this repo. |
+| pet *(point model)* | GitHub `cxliu0/PET` | head points | PyTorch | MIT code; weights from research-only data | medium | Disabled: weights are Google-Drive-only and the adapter is not written yet. Best permissive point option if retrained on our data. |
 | rfdetr-base *(g)* | HF `Roboflow/rf-detr-base`, PyPI `rfdetr` 1.11.2 | COCO | rfdetr | Apache-2.0 (nano–medium sizes; larger sizes use a different Roboflow license, so check per size) | low | Additional permissive candidate. Adapter not yet written (disabled in `models.yaml`); add on the target box if RT-DETR underperforms. |
 | Farneback | OpenCV | flow | — | Apache-2.0 | low | Flow fallback candidate. |
 | RAFT-small | torchvision | flow | — | BSD-3-Clause | low | Flow fallback candidate. |
@@ -173,7 +176,21 @@ docker run --gpus all --rm -v $PWD/data:/app/data -v $PWD/models:/app/models -v 
 **Changes adopted from the literature**
 1. **Heads, not bodies, in dense crowds** is confirmed: CroHD / HT21 (CVPR 2021) tracks heads because bodies are fully occluded. Our head-first labelling matches this.
 2. **More permissive detectors.** D-FINE (Apache-2.0, ICLR 2025; D-FINE-L 54.0 AP at 124 FPS on T4 TensorRT FP16) was added to `models.yaml` and verified to run. Further Apache candidates: RT-DETRv4 (repo is Apache-2.0), DEIM (Apache-2.0, checked in the repo LICENSE), RF-DETR. **DEIMv2 has no LICENSE file in its repo and uses a DINOv3 backbone (Meta's own license), so it is not yet usable.**
-3. **Point-based crowd localisation** for high/extreme density: P2PNet (Tencent, BSD-style license) and PET (MIT) predict one point per head instead of boxes, and are designed for crowds where box detectors saturate. Proposed as an extra candidate class for the extreme-density bucket. Points can feed the same tracker. Adapter not written yet.
-4. **Tracker comparison.** Deep OC-SORT reports 63.9 HOTA on MOT20 vs 61.3 ByteTrack and 62.1 OC-SORT (numbers from the Deep OC-SORT paper). Add OC-SORT to the benchmark and report **HOTA** alongside MOTA/IDF1.
+3. **Point-based crowd localisation** for high/extreme density: P2PNet and PET predict one point per head instead of boxes, and are designed for crowds where box detectors saturate. **Correction (after reading the LICENSE file): P2PNet's license limits use to academic research only**, so it can only be a benchmark baseline. PET's code is MIT, but its released weights were trained on research-only datasets, so for commercial use PET must be retrained on our own point labels (one click per head, much cheaper than boxes).
+4. **Tracker comparison.** Deep OC-SORT reports 63.9 HOTA on MOT20 vs 61.3 ByteTrack and 62.1 OC-SORT (numbers from the Deep OC-SORT paper). OC-SORT is now in the benchmark (see §11), and HOTA is reported.
 
 **Criteria check.** The literature scores detectors with AP and trackers with MOTA/HOTA/IDF1. No standard benchmark exists for "wrong-way" decisions. Our primary metric (direction accuracy + decided fraction + wrong-way false alarms, at ≥ 15 FPS on the target GPU) is the right one for this system, and AP/IDSW stay as supporting metrics. Changes: add HOTA, and use zone-level cell accuracy (already implemented) as the primary metric at extreme density, where no published method claims reliable per-person tracking.
+
+## 11. Additions after the literature review
+
+| added | what it does | verified here? |
+|---|---|---|
+| **OC-SORT tracker** (`benchmark/ocsort.py`, written from the paper, all 3 mechanisms + BYTE pass) | every detector now runs with **both** ByteTrack and OC-SORT (`--trackers`); results are reported per pair | ✅ tests: steady walking, 10- and 25-frame occlusion, two counter-flowing people crossing. On these clean synthetic cases both trackers score the same; the difference can only show on real, noisy footage |
+| **HOTA** (+ DetA, AssA) | the tracking score current papers use; approximate matching, so use TrackEval for official numbers | ✅ = 1.0 on perfect tracks, drops on an ID switch |
+| **Head localisation F1 (point-in-box)** | scores box models (box centre) and point models (points) **on the same rule** | ✅ |
+| **Point-model path** (`benchmark/points.py`) | point → pseudo head box sized by crowd spacing → same tracker and direction logic; point models are matched to GT by point-in-box, not IoU | ✅ end to end with a point-model stand-in. A bug found and fixed: IoU matching was rejecting every point-model track |
+| **P2PNet adapter** | loads P2PNet from its own clone | ⚠️ **not run here**: the build sandbox's security policy blocks executing downloaded code. First real run is on your machine |
+| D-FINE S / M | Apache-2.0 detector candidates | ✅ runs |
+
+Command for the GPU box (unchanged, now also runs both trackers):
+`python -m benchmark.run --manifest data/manifest.csv --split test --models all --sizes 640 960 1280 --tiled --trackers bytetrack ocsort --device 0 --half --trt`

@@ -16,12 +16,30 @@ from collections import Counter, defaultdict
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from .metrics_det import match_frame
+from .metrics_det import box_iou, match_frame
+
+
+def _point_sim(pred_boxes, gt_boxes):
+    """1 - normalised centre distance if the predicted centre lies inside the GT box, else 0."""
+    c = (pred_boxes[:, :2] + pred_boxes[:, 2:]) / 2
+    inside = ((c[:, None, 0] >= gt_boxes[None, :, 0]) & (c[:, None, 0] <= gt_boxes[None, :, 2]) &
+              (c[:, None, 1] >= gt_boxes[None, :, 1]) & (c[:, None, 1] <= gt_boxes[None, :, 3]))
+    gc = (gt_boxes[:, :2] + gt_boxes[:, 2:]) / 2
+    diag = np.linalg.norm(gt_boxes[:, 2:] - gt_boxes[:, :2], axis=1)
+    d = np.linalg.norm(c[:, None] - gc[None], axis=2) / np.maximum(diag[None], 1e-6)
+    return np.where(inside, np.clip(1 - d, 0.05, 1.0), 0.0)
+
+
+def _point_match(pred_boxes, gt_boxes):
+    sim = _point_sim(pred_boxes, gt_boxes)
+    r, c = linear_sum_assignment(-sim)
+    return [(int(i), int(j)) for i, j in zip(r, c) if sim[i, j] > 0]
 
 
 class TrackEval:
-    def __init__(self, iou_thr=0.5):
-        self.iou_thr = iou_thr
+    def __init__(self, iou_thr=0.5, match="iou"):
+        """match='iou' (box models, standard MOT) or 'point' (point models: track centre inside GT box)."""
+        self.iou_thr, self.match = iou_thr, match
         self.tp = self.fp = self.fn = self.idsw = 0
         self.last_match: dict[int, int] = {}
         self.pair_frames: Counter = Counter()      # (gt, pred) -> frames matched
@@ -29,6 +47,11 @@ class TrackEval:
         self.pred_frames: Counter = Counter()
         self.pred_states: dict[int, Counter] = defaultdict(Counter)
         self.n_frames = 0
+        # HOTA accumulators per localisation threshold alpha
+        self.alphas = np.arange(0.05, 0.96, 0.05)
+        self.h_tp = np.zeros(len(self.alphas))
+        self.h_pairs = [Counter() for _ in self.alphas]
+        self.n_gt_dets = self.n_pred_dets = 0
 
     def add(self, gt_ids, gt_boxes, pred_ids, pred_boxes, pred_states=None):
         self.n_frames += 1
@@ -39,7 +62,18 @@ class TrackEval:
         if pred_states is not None:
             for p, s in zip(pred_ids, pred_states):
                 self.pred_states[int(p)][s] += 1
-        m = match_frame(np.asarray(pred_boxes).reshape(-1, 4), np.asarray(gt_boxes).reshape(-1, 4), self.iou_thr)
+        pb, gb = np.asarray(pred_boxes, np.float32).reshape(-1, 4), np.asarray(gt_boxes, np.float32).reshape(-1, 4)
+        self.n_gt_dets += len(gb)
+        self.n_pred_dets += len(pb)
+        if len(pb) and len(gb):
+            iou = box_iou(pb, gb) if self.match == "iou" else _point_sim(pb, gb)
+            r, c = linear_sum_assignment(-iou)
+            for k, a in enumerate(self.alphas):
+                ok = iou[r, c] >= a
+                self.h_tp[k] += ok.sum()
+                for pi, gi in zip(r[ok], c[ok]):
+                    self.h_pairs[k][(int(gt_ids[gi]), int(pred_ids[pi]))] += 1
+        m = match_frame(pb, gb, self.iou_thr) if self.match == "iou" else _point_match(pb, gb)
         self.tp += len(m)
         self.fp += len(pred_ids) - len(m)
         self.fn += len(gt_ids) - len(m)
@@ -65,12 +99,29 @@ class TrackEval:
         idfp = sum(self.pred_frames.values()) - idtp
         idfn = sum(self.gt_frames.values()) - idtp
         return {
+            **self.hota(),
             "MOTA": 1 - (self.fn + self.fp + self.idsw) / max(n_gt, 1),
             "IDF1": 2 * idtp / max(2 * idtp + idfp + idfn, 1),
             "IDSW": self.idsw,
             "IDSW_per_100_gt_tracks": 100 * self.idsw / max(len(gts), 1),
             "n_gt_tracks": len(gts),
         }
+
+    def hota(self) -> dict:
+        """HOTA (Luiten et al. 2021). Approximation: one IoU-maximising match per frame, thresholded
+        at each alpha (TrackEval weights matches by association score). Use TrackEval for official numbers."""
+        hs, das, aas = [], [], []
+        for k in range(len(self.alphas)):
+            tp = self.h_tp[k]
+            fn, fp = self.n_gt_dets - tp, self.n_pred_dets - tp
+            det_a = tp / max(tp + fn + fp, 1)
+            if tp:
+                ass = [n * n / (self.gt_frames[g] + self.pred_frames[p] - n) for (g, p), n in self.h_pairs[k].items()]
+                ass_a = sum(ass) / tp
+            else:
+                ass_a = 0.0
+            hs.append(np.sqrt(det_a * ass_a)), das.append(det_a), aas.append(ass_a)
+        return {"HOTA": float(np.mean(hs)), "DetA": float(np.mean(das)), "AssA": float(np.mean(aas))}
 
     # ------------------------------------------------------------------ direction
     def direction(self, gt_dirs: dict[int, str], min_red_frames: int = 1) -> dict:

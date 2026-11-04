@@ -18,6 +18,8 @@ benchmark/          Phase 0 harness
   download.py       fetch candidates + SHA-256 lock file
   detectors.py      adapters: ultralytics, ONNX (YOLO / DeepStream / RT-DETR), HF RT-DETR, Darknet; tiling; ensembles
   tracker.py        ByteTrack (per class, track-quality score)
+  ocsort.py         OC-SORT (ORU + OCM + OCR + BYTE pass)
+  points.py         point-based head models (P2PNet) -> pseudo boxes
   direction.py      homography, direction fields (arrow/polyline/circular/both), reference classifier
   metrics_det.py    AP / AR / FP-per-frame with ignore regions
   metrics_track.py  MOTA / IDF1 / IDSW, direction accuracy, wrong-way P/R/F1
@@ -35,7 +37,7 @@ tests/                        unit + synthetic end-to-end tests
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements-benchmark.txt
-python -m pytest -q tests            # 21 tests, CPU, ~3 s
+python -m pytest -q tests            # 30 tests, CPU, ~8 s
 python -m benchmark.download         # ~550 MB of candidate weights into models/
 ```
 

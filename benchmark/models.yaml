@@ -133,6 +133,25 @@ candidates:
     enabled: false
     notes: "RF-DETR (pip rfdetr 1.11.2, Apache-2.0 for nano/small/base/medium; larger sizes are under a different Roboflow license - check per size). DINOv2 backbone, strong fine-tuning. Adapter to be added via the `rfdetr` package on the target machine."
 
+  # ---- point-based crowd localisation (one point per head), for high / extreme density -----
+  - id: p2pnet-shtecha
+    source: git://github.com/TencentYoutuResearch/CrowdCounting-P2PNet
+    weights: weights/SHTechA.pth
+    adapter: p2pnet
+    classes: {0: head}
+    license: "Tencent P2PNet license: ACADEMIC RESEARCH USE ONLY"
+    risk: high
+    notes: "P2PNet (ICCV 2021). License clause 1 limits use to academic research, so this is a benchmark baseline only, never deployable. Weights trained on ShanghaiTech A (research dataset). Code is cloned into models/ext/, not copied into this repo. Not executed in the build sandbox (policy blocks running downloaded code); first run happens on your machine."
+  - id: pet-jhu
+    source: "gdrive://1D4vtoYhQuvj_5onJaXJRtWrlwrl2ckbE"
+    filename: pet_jhu_crowd.pth
+    adapter: pet_pending
+    classes: {0: head}
+    license: "MIT (code); weights trained on JHU-CROWD++ (non-commercial research)"
+    risk: medium
+    enabled: false
+    notes: "PET point-query quadtree (ICCV 2023), MIT code: github.com/cxliu0/PET. The released weights carry the research-only terms of their training data. For commercial use, retrain PET on our own point labels (one click per head, much cheaper than boxes). Adapter not written yet: weights are Google-Drive only, which the build sandbox cannot reach."
+
 flow:
   - id: farneback
     impl: opencv

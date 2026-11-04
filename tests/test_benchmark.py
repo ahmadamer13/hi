@@ -221,3 +221,98 @@ def test_flow_against_fraction_known_motion():
     cells_bus = cell_against_fraction(flow, sc, cam, a.shape, dt=0.04, cell_px=128, min_speed_mps=0.5,
                                       bus_boxes=[(0, 0, 960, 540)])
     assert not cells_bus
+
+
+# ------------------------------------------------------------------ OC-SORT / HOTA / points
+from benchmark.metrics_det import PointAccumulator
+from benchmark.ocsort import OCSort
+from benchmark.points import pseudo_boxes
+
+
+def _run_tracker(tr, n=80, gap=None, cross=False):
+    te = TrackEval()
+    for f in range(n):
+        if cross:   # two heads walking through each other in opposite directions (counterflow)
+            gt = np.array([[100 + 4 * f, 200, 120 + 4 * f, 222], [420 - 4 * f, 204, 440 - 4 * f, 226]], np.float32)
+        else:
+            gt = np.array([[10 + 3 * f, 10, 40 + 3 * f, 60], [500 - 3 * f, 100, 530 - 3 * f, 150]], np.float32)
+        ids = [1, 2]
+        if gap and gap[0] <= f < gap[1]:   # occlusion: no detections
+            out = tr.update(f, np.zeros((0, 4), np.float32), np.zeros(0), np.zeros(0, int))
+        else:
+            out = tr.update(f, gt, np.array([0.9, 0.9]), np.array([0, 0]))
+        te.add(ids, gt, [o[0] for o in out], np.array([o[2] for o in out]).reshape(-1, 4))
+    return te.summary()
+
+
+@pytest.mark.parametrize("make", [ByteTrack, OCSort])
+def test_trackers_basic(make):
+    s = _run_tracker(make())
+    assert s["IDSW"] == 0 and s["IDF1"] > 0.9 and s["HOTA"] > 0.85
+
+
+def test_ocsort_survives_occlusion():
+    s = _run_tracker(OCSort(), gap=(30, 40))
+    assert s["IDSW"] == 0
+
+
+def test_ocsort_counterflow_crossing():
+    s = _run_tracker(OCSort(), cross=True)
+    assert s["IDSW"] == 0, s
+
+
+def test_hota_drops_with_id_switch():
+    te = TrackEval()
+    b = np.array([[0, 0, 10, 10]], np.float32)
+    for f in range(10):
+        te.add([1], b, [1], b)
+    perfect = te.hota()["HOTA"]
+    te2 = TrackEval()
+    for f in range(10):
+        te2.add([1], b, [1 if f < 5 else 2], b)
+    assert perfect == pytest.approx(1.0) and te2.hota()["HOTA"] < 0.8
+
+
+def test_point_accumulator():
+    pa = PointAccumulator()
+    gt = np.array([[0, 0, 10, 10], [20, 0, 30, 10]], np.float32)
+    pa.add(np.array([[5, 5], [25, 5], [50, 50]]), np.array([0.9, 0.8, 0.7]), gt)
+    s = pa.summary(op_thr=0.5)
+    assert s["loc_recall@op"] == 1.0 and s["loc_precision@op"] == pytest.approx(2 / 3)
+    pa2 = PointAccumulator()   # two points in one box: only one TP
+    pa2.add(np.array([[4, 4], [6, 6]]), np.array([0.9, 0.8]), gt[:1])
+    assert pa2.summary(0.5)["loc_precision@op"] == pytest.approx(0.5)
+
+
+def test_pseudo_boxes_follow_spacing():
+    pts = np.array([[0, 0], [10, 0], [200, 200]], np.float32)
+    b = pseudo_boxes(pts)
+    w = b[:, 2] - b[:, 0]
+    assert w[0] == pytest.approx(10 * 0.5 * 2) and w[2] == pytest.approx(60)
+
+
+class _PointOracle(OracleDetector):
+    """Point-model stand-in: emits head-centre points + pseudo boxes (exercises the point path)."""
+    point_model = True
+
+    def __call__(self, img):
+        d = super().__call__(img)
+        pts = (d.boxes[:, :2] + d.boxes[:, 2:]) / 2
+        out = Detections(pseudo_boxes(pts), d.scores, d.classes)
+        out.points = pts
+        return out
+
+
+@pytest.mark.parametrize("trk", ["bytetrack", "ocsort"])
+def test_end_to_end_trackers_and_point_model(tmp_path, trk):
+    man = make_clip(tmp_path, seed=4)
+    clips = load_manifest(man, "test")
+    a = _args()
+    a.tracker_name = trk
+    for det in (OracleDetector(clips[0].label_dir / "gt.csv", jitter_px=1.5),
+                _PointOracle(clips[0].label_dir / "gt.csv", jitter_px=1.5)):
+        res = evaluate_detector(det, clips, a, {})
+        dp = res["direction_people"]["all"]
+        assert dp["ww_fp"] == 0 and dp["ww_recall"] == 1.0, (trk, type(det).__name__, dp)
+        assert res["detection"]["all"]["person"]["loc_recall@op"] > 0.95
+        assert res["tracking_people"]["all"]["HOTA_mean_over_clips"] > 0.5

@@ -326,14 +326,20 @@ class EnsembleDetector(Detector):
     def __init__(self, members: list[tuple[Detector, tuple[str, ...]]]):
         self.members = members
         self.classes = set().union(*[set(c) for _, c in members])
+        self.point_model = any(getattr(m, "point_model", False) for m, _ in members)
         self.name = "+".join(m.name for m, _ in members)
 
     def __call__(self, img):
-        out = []
+        out, pts = [], []
         for det, cls in self.members:
             d = det(img)
-            out.append(d.select(np.isin(d.classes, [CLS_ID[c] for c in cls])))
-        return Detections.concat(out)
+            m = np.isin(d.classes, [CLS_ID[c] for c in cls])
+            centres = (d.boxes[:, :2] + d.boxes[:, 2:]) / 2 if len(d) else np.zeros((0, 2), np.float32)
+            pts.append(np.asarray(getattr(d, "points", centres))[m].reshape(-1, 2))  # keep point-model points
+            out.append(d.select(m))
+        res = Detections.concat(out)
+        res.points = np.concatenate(pts).astype(np.float32) if pts else np.zeros((0, 2), np.float32)
+        return res
 
 
 def build(cand: dict, imgsz: int | None = None, device: str | None = None, half: bool = False,
@@ -370,4 +376,9 @@ def build(cand: dict, imgsz: int | None = None, device: str | None = None, half:
             size = (imgsz, int(round(imgsz * size[1] / size[0] / 32) * 32))
         return DarknetDetector(local_path(cand["cfg"]), path, cmap, input_size=size, conf=conf,
                                cuda=device not in (None, "cpu"), fp16=half)
+    if a == "p2pnet":
+        from .points import P2PNetDetector
+        repo = local_path(cand["source"], cand)
+        return P2PNetDetector(repo, repo / cand["weights"], imgsz=imgsz or 1280, conf=max(conf, 0.3),
+                              device=device, half=half)
     raise ValueError(f"adapter {a!r} not available")

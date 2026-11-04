@@ -121,3 +121,59 @@ def match_frame(pred_boxes, gt_boxes, thr=0.5):
     cost[iou < thr] = 1e6
     r, c = linear_sum_assignment(cost)
     return [(int(i), int(j)) for i, j in zip(r, c) if iou[i, j] >= thr]
+
+
+@dataclass
+class PointAccumulator:
+    """Head LOCALISATION score shared by box and point models.
+
+    A predicted point (box centre for box models) is a TP if it lies inside an unmatched GT box;
+    one-to-one Hungarian matching on distance to the GT centre. Reports AP over score, and
+    precision / recall / F1 at the operating threshold. This is what direction estimation needs
+    (a stable point per person), and it does not penalise point models for having no box extent.
+    """
+    scores: list = field(default_factory=list)
+    tp: list = field(default_factory=list)
+    n_gt: int = 0
+    n_frames: int = 0
+
+    def add(self, pred_pts, pred_scores, gt_boxes, gt_ignore=None):
+        self.n_frames += 1
+        pred_pts = np.asarray(pred_pts, np.float32).reshape(-1, 2)
+        gt_ignore = np.zeros(len(gt_boxes), bool) if gt_ignore is None else np.asarray(gt_ignore, bool)
+        valid, ign = gt_boxes[~gt_ignore], gt_boxes[gt_ignore]
+        self.n_gt += len(valid)
+        tp = np.zeros(len(pred_pts), bool)
+        if len(pred_pts) and len(valid):
+            inside = ((pred_pts[:, None, 0] >= valid[None, :, 0]) & (pred_pts[:, None, 0] <= valid[None, :, 2]) &
+                      (pred_pts[:, None, 1] >= valid[None, :, 1]) & (pred_pts[:, None, 1] <= valid[None, :, 3]))
+            ctr = (valid[:, :2] + valid[:, 2:]) / 2
+            cost = np.linalg.norm(pred_pts[:, None] - ctr[None], axis=2)
+            cost[~inside] = 1e9
+            r, c = linear_sum_assignment(cost)
+            ok = inside[r, c]
+            tp[r[ok]] = True
+        drop = np.zeros(len(pred_pts), bool)
+        if len(ign) and len(pred_pts):
+            drop = ~tp & ((pred_pts[:, None, 0] >= ign[None, :, 0]) & (pred_pts[:, None, 0] <= ign[None, :, 2]) &
+                          (pred_pts[:, None, 1] >= ign[None, :, 1]) & (pred_pts[:, None, 1] <= ign[None, :, 3])).any(1)
+        self.scores.extend(np.asarray(pred_scores)[~drop].tolist())
+        self.tp.extend(tp[~drop].tolist())
+
+    def summary(self, op_thr: float = 0.4) -> dict:
+        if not self.scores:
+            return {"loc_AP": 0.0, "loc_precision@op": None, "loc_recall@op": 0.0, "loc_f1@op": None,
+                    "n_gt": self.n_gt}
+        s, tp = np.array(self.scores), np.array(self.tp)
+        o = np.argsort(-s, kind="mergesort")
+        s, tp = s[o], tp[o]
+        ctp, cfp = np.cumsum(tp), np.cumsum(~tp)
+        rec = ctp / max(self.n_gt, 1)
+        prec = ctp / np.maximum(ctp + cfp, 1)
+        pe = np.maximum.accumulate(prec[::-1])[::-1]
+        idx = np.searchsorted(rec, np.linspace(0, 1, 101), side="left")
+        ap = float(np.mean([pe[i] if i < len(pe) else 0.0 for i in idx]))
+        k = int((s >= op_thr).sum())
+        p, r = (float(prec[k - 1]), float(rec[k - 1])) if k else (None, 0.0)
+        f1 = 2 * p * r / max(p + r, 1e-9) if p is not None else None
+        return {"loc_AP": ap, "loc_precision@op": p, "loc_recall@op": r, "loc_f1@op": f1, "n_gt": int(self.n_gt)}
