@@ -89,5 +89,27 @@
     "files": {
       "models/yolo11m.pt": "d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95"
     }
+  },
+  "dfine-s-obj2coco": {
+    "source": "hf://ustc-community/dfine-small-obj2coco",
+    "license": "Apache-2.0",
+    "files": {
+      "models/ustc-community__dfine-small-obj2coco/.gitattributes": "11ad7efa24975ee4b0c3c3a38ed18737f0658a5f75a0a96787b576a78a023361",
+      "models/ustc-community__dfine-small-obj2coco/README.md": "f570fa2a85670fca80b1e17a8fb122e737a49003127f077a091306ddecafb0c2",
+      "models/ustc-community__dfine-small-obj2coco/config.json": "a8e3c1ecda6040f54c27834b3f79c0d05181c77a70555262228924cec2aee59e",
+      "models/ustc-community__dfine-small-obj2coco/model.safetensors": "8ff4a8332cf9507209fa443058d00752ebfede3f8cb497b91d4238369e3a57f7",
+      "models/ustc-community__dfine-small-obj2coco/preprocessor_config.json": "7e9e2245806aa3ef068a5321f5eebee3116fa4cec560173231954ffaca930eca"
+    }
+  },
+  "dfine-m-obj2coco": {
+    "source": "hf://ustc-community/dfine-medium-obj2coco",
+    "license": "Apache-2.0",
+    "files": {
+      "models/ustc-community__dfine-medium-obj2coco/.gitattributes": "11ad7efa24975ee4b0c3c3a38ed18737f0658a5f75a0a96787b576a78a023361",
+      "models/ustc-community__dfine-medium-obj2coco/README.md": "3f8c95473772e9c1f8666742204aa3e76d4b95aa6c015b4ce64060305d5c48d4",
+      "models/ustc-community__dfine-medium-obj2coco/config.json": "dbb2e60ac30cf7cec3477617c6e1a5b03fec051ae60af4874c0fcc9dde4c4f44",
+      "models/ustc-community__dfine-medium-obj2coco/model.safetensors": "eb418ee9bcbaf052f57e71a695bad9af653355cef8defd547c8be75e9ab90bd8",
+      "models/ustc-community__dfine-medium-obj2coco/preprocessor_config.json": "7e9e2245806aa3ef068a5321f5eebee3116fa4cec560173231954ffaca930eca"
+    }
   }
 }

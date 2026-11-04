@@ -160,3 +160,20 @@ docker run --gpus all --rm -v $PWD/data:/app/data -v $PWD/models:/app/models -v 
 - The ByteTrack used here has no ReID. If ID switches dominate in high density, add a light ReID
   (Phase 1), and re-check whether the detector ranking changes.
 - The density thresholds (50/200/600 heads) are assumptions. Calibrate them after the first labelling pass.
+
+## 10. Literature review (2026-11-04): are the criteria and candidates right?
+
+**Closest published work to this project**
+- *AI-powered directional anomaly detection in dense Hajj crowds for proactive safety management* (Springer, 2026). Hajj/Umrah counterflow detection with a YOLO detector plus directional analysis, on the HAJJv2 data (Massaa, Jamarat, Arafat, Tawaf). Only the abstract was accessible from here; read the full text before relying on its numbers.
+- Alafif et al. (2023): optical flow + FCNN to detect invalid movement in Hajj video.
+- *Realtime Anomaly Detection using Trajectory-level Crowd Behavior Learning* (CVPR-W 2016): flags people walking against the flow, but notes real-time trackers degrade in very dense crowds. This supports our flow fallback.
+- *Tracking Individual Targets in High Density Crowd Scenes* (Hajj 2009 video analysis): individual tracking at Hajj densities is possible but fragile.
+- Most Hajj crowd papers (HAJJ-Crowd, Hajj-Crowd-2021) address **counting/density classification**, not direction, and report very high accuracy on small single-group datasets, so those numbers may not transfer.
+
+**Changes adopted from the literature**
+1. **Heads, not bodies, in dense crowds** is confirmed: CroHD / HT21 (CVPR 2021) tracks heads because bodies are fully occluded. Our head-first labelling matches this.
+2. **More permissive detectors.** D-FINE (Apache-2.0, ICLR 2025; D-FINE-L 54.0 AP at 124 FPS on T4 TensorRT FP16) was added to `models.yaml` and verified to run. Further Apache candidates: RT-DETRv4 (repo is Apache-2.0), DEIM (Apache-2.0, checked in the repo LICENSE), RF-DETR. **DEIMv2 has no LICENSE file in its repo and uses a DINOv3 backbone (Meta's own license), so it is not yet usable.**
+3. **Point-based crowd localisation** for high/extreme density: P2PNet (Tencent, BSD-style license) and PET (MIT) predict one point per head instead of boxes, and are designed for crowds where box detectors saturate. Proposed as an extra candidate class for the extreme-density bucket. Points can feed the same tracker. Adapter not written yet.
+4. **Tracker comparison.** Deep OC-SORT reports 63.9 HOTA on MOT20 vs 61.3 ByteTrack and 62.1 OC-SORT (numbers from the Deep OC-SORT paper). Add OC-SORT to the benchmark and report **HOTA** alongside MOTA/IDF1.
+
+**Criteria check.** The literature scores detectors with AP and trackers with MOTA/HOTA/IDF1. No standard benchmark exists for "wrong-way" decisions. Our primary metric (direction accuracy + decided fraction + wrong-way false alarms, at ≥ 15 FPS on the target GPU) is the right one for this system, and AP/IDSW stay as supporting metrics. Changes: add HOTA, and use zone-level cell accuracy (already implemented) as the primary metric at extreme density, where no published method claims reliable per-person tracking.

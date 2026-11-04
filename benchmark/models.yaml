@@ -110,6 +110,20 @@ candidates:
     notes: "Reference COCO bus/person detector; AGPL."
 
   # ---- (g) additional permissive candidates found during the search ----------------------
+  - id: dfine-s-obj2coco
+    source: hf://ustc-community/dfine-small-obj2coco
+    adapter: hf_rtdetr
+    classes: {0: person, 5: bus, 2: car, 7: truck}
+    license: Apache-2.0
+    risk: low
+    notes: "D-FINE (ICLR 2025), Objects365 -> COCO. Paper: D-FINE-L 54.0 AP @124 FPS T4 TensorRT FP16. Runs through the same transformers adapter. Verify Objects365 data terms for commercial use."
+  - id: dfine-m-obj2coco
+    source: hf://ustc-community/dfine-medium-obj2coco
+    adapter: hf_rtdetr
+    classes: {0: person, 5: bus, 2: car, 7: truck}
+    license: Apache-2.0
+    risk: low
+    notes: "D-FINE medium; same notes."
   - id: rfdetr-base
     source: hf://Roboflow/rf-detr-base
     adapter: hf_rtdetr_like_pending
