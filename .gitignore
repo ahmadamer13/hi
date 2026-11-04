@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+models/*
+!models/README.md
+!models/manifest.lock.json
+data/clips/
+data/labels/
+runs/
+results/raw/
+*.engine
+*.onnx
+.pytest_cache/

@@ -1,0 +1,136 @@
+# Candidate registry for Phase 0. Every license field below was checked at the source on
+# 2026-11-04 (HF model card + API tags, GitHub repo tree, PyPI metadata). See
+# docs/phase0_benchmark_report.md section 2 for the reasoning behind each "risk" value.
+#
+# adapter:   ultralytics | onnx_yolo | hf_rtdetr | darknet
+# classes:   model class index -> our canonical class (head | person | bus | car | truck)
+# risk:      low | medium | high   (commercial-deployment license risk)
+
+candidates:
+  # ---- (a) wesjos/YOLO-head-detection ------------------------------------------------
+  - id: wesjos-11n-head
+    source: hf://wesjos/YOLO-head-detection/11n-head.pt
+    adapter: ultralytics
+    classes: {0: head}
+    license: AGPL-3.0
+    risk: high
+    notes: "AGPL-3.0 (Ultralytics-derived). Commercial closed-source use needs an Ultralytics Enterprise license. Training set '~15k images', source not disclosed."
+  - id: wesjos-11m-head
+    source: hf://wesjos/YOLO-head-detection/11m-head.pt
+    adapter: ultralytics
+    classes: {0: head}
+    license: AGPL-3.0
+    risk: high
+    notes: "Same as above; card claims highest recall."
+  - id: wesjos-v8s-head
+    source: hf://wesjos/YOLO-head-detection/v8s-head.pt
+    adapter: ultralytics
+    classes: {0: head}
+    license: AGPL-3.0
+    risk: high
+    notes: "Card claims zero false boxes on a head-free image; YOLO11 variants emit low-conf FPs."
+
+  # ---- (b) Sharath33/Person ------------------------------------------------------------
+  - id: sharath33-phd-s
+    source: hf://Sharath33/Person/yolov11_phd_s.onnx
+    adapter: onnx_yolo
+    classes: {0: person, 1: head}
+    input_format: bgr
+    license: "OpenRAIL++ (declared)"
+    risk: high
+    notes: "Card declares OpenRAIL++ but base_model is pyronear/yolov11s, which is AGPL-3.0, and it is YOLO11 (Ultralytics, AGPL). The OpenRAIL++ grant is likely not valid for the AGPL portions; trained on CrowdHuman (non-commercial research terms). 0 downloads, no metrics published."
+
+  # ---- (c) Owen718/Head-Detection-Yolov8 -------------------------------------------------
+  - id: owen718-v8-head
+    source: "gdrive://1qlBmiEU4GBV13fxPhLZqjhjBbREvs8-m"
+    filename: owen718_yolov8_head.pt
+    adapter: ultralytics
+    classes: {0: head}
+    license: "NONE (no LICENSE file in repo)"
+    risk: high
+    notes: "No license => all rights reserved by default; also YOLOv8 (AGPL) + CrowdHuman (non-commercial). Benchmark only; not deployable without written permission from the author."
+
+  # ---- (d) yunkai/yolo-lightnet ---------------------------------------------------------
+  - id: lightnet-headbody-640
+    source: hf://yunkai/yolo-lightnet/head_body/lightnet-head_body-640x640.weights
+    cfg: hf://yunkai/yolo-lightnet/head_body/lightnet-head_body-640x640.cfg
+    adapter: darknet
+    input_size: [640, 640]
+    classes: {0: head, 1: person}
+    license: Apache-2.0
+    risk: medium
+    notes: "Apache-2.0 weights, darknet format (2023). 'body' = full body incl. occluded part. Trained on CrowdHuman, whose terms are non-commercial research -> dataset-derived risk."
+  - id: lightnet-headbody-1024
+    source: hf://yunkai/yolo-lightnet/head_body/lightnet-head_body-1024x768.weights
+    cfg: hf://yunkai/yolo-lightnet/head_body/lightnet-head_body-1024x768.cfg
+    adapter: darknet
+    input_size: [1024, 768]
+    classes: {0: head, 1: person}
+    license: Apache-2.0
+    risk: medium
+    notes: "Same model family at 1024x768."
+
+  # ---- (e) RT-DETR (Apache-2.0, COCO) -------------------------------------------------
+  - id: rtdetr-r18vd
+    source: hf://PekingU/rtdetr_r18vd
+    adapter: hf_rtdetr
+    classes: {0: person, 5: bus, 2: car, 7: truck}
+    license: Apache-2.0
+    risk: low
+    notes: "COCO-trained (COCO annotations CC-BY-4.0). Needs fine-tuning for heads."
+  - id: rtdetr-r50vd
+    source: hf://PekingU/rtdetr_r50vd
+    adapter: hf_rtdetr
+    classes: {0: person, 5: bus, 2: car, 7: truck}
+    license: Apache-2.0
+    risk: low
+    notes: "Larger RT-DETR."
+  - id: rtdetrv2-r18vd
+    source: hf://PekingU/rtdetr_v2_r18vd
+    adapter: hf_rtdetr
+    classes: {0: person, 5: bus, 2: car, 7: truck}
+    license: Apache-2.0
+    risk: low
+    notes: "RT-DETRv2, same license; usually +1-2 AP over v1 at same cost on COCO."
+
+  # ---- (f) COCO baseline for bus (and person baseline) -----------------------------------
+  - id: yolo11s-coco
+    source: ultralytics://yolo11s.pt
+    adapter: ultralytics
+    classes: {0: person, 5: bus, 2: car, 7: truck}
+    license: AGPL-3.0
+    risk: high
+    notes: "Reference COCO bus/person detector; AGPL."
+  - id: yolo11m-coco
+    source: ultralytics://yolo11m.pt
+    adapter: ultralytics
+    classes: {0: person, 5: bus, 2: car, 7: truck}
+    license: AGPL-3.0
+    risk: high
+    notes: "Reference COCO bus/person detector; AGPL."
+
+  # ---- (g) additional permissive candidates found during the search ----------------------
+  - id: rfdetr-base
+    source: hf://Roboflow/rf-detr-base
+    adapter: hf_rtdetr_like_pending
+    classes: {1: person, 6: bus, 3: car, 8: truck}
+    license: Apache-2.0
+    risk: low
+    enabled: false
+    notes: "RF-DETR (pip rfdetr 1.11.2, Apache-2.0 for nano/small/base/medium; larger sizes are under a different Roboflow license - check per size). DINOv2 backbone, strong fine-tuning. Adapter to be added via the `rfdetr` package on the target machine."
+
+flow:
+  - id: farneback
+    impl: opencv
+    license: Apache-2.0 (OpenCV 4.5+)
+    risk: low
+  - id: raft-small
+    impl: torchvision
+    license: BSD-3-Clause (torchvision code + weights)
+    risk: low
+
+# Datasets proposed for fine-tuning and their terms (as published by the dataset owners).
+datasets:
+  crowdhuman: {terms: "non-commercial research only", risk: high}
+  jhu_crowd_pp: {terms: "non-commercial research only (point labels, no boxes)", risk: high}
+  own_footage: {terms: "owned by operator", risk: low}

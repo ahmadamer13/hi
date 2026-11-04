@@ -1,0 +1,20 @@
+# Phase 0 benchmark image for the target box (RTX 3060/4060 class).
+# Build:  docker build -f Dockerfile.benchmark -t wrongway-bench .
+# Run:    docker run --gpus all --rm -v $PWD/data:/app/data -v $PWD/models:/app/models \
+#             -v $PWD/results:/app/results wrongway-bench \
+#             bash -c "python -m benchmark.download && python -m benchmark.trt.export && \
+#                      python -m benchmark.run --manifest data/manifest.csv --split test --models all \
+#                         --sizes 640 960 1280 --tiled --device 0 --half --trt"
+FROM nvcr.io/nvidia/tensorrt:24.08-py3
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libgl1 && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY requirements-benchmark.txt .
+RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cu121 \
+        torch torchvision && \
+    pip install --no-cache-dir -r requirements-benchmark.txt && \
+    pip uninstall -y onnxruntime opencv-python && \
+    pip install --no-cache-dir onnxruntime-gpu "opencv-python-headless<5"
+COPY benchmark benchmark
+COPY tests tests
+COPY configs configs
+CMD ["python", "-m", "pytest", "-q", "tests"]

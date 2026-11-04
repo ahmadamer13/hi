@@ -1,0 +1,23 @@
+{
+  "_comment": "Phase-0 camera config. Image px -> ground metres. Zones are matched in order: put exclusions first.",
+  "version": 1,
+  "calibration": {
+    "image_points":  [[412, 1010], [1530, 1002], [1288, 470], [640, 476], [966.7, 742.1]],
+    "ground_points": [[0.0, 0.0],  [12.0, 0.0],  [12.0, 40.0], [0.0, 40.0], [6.0, 14.5]],
+    "head_plane": {
+      "_comment": "optional: same ground points, clicked at head height (~1.6 m) on people standing on them",
+      "image_points":  [[418, 905], [1522, 899], [1286, 436], [644, 441]],
+      "ground_points": [[0.0, 0.0],  [12.0, 0.0],  [12.0, 40.0], [0.0, 40.0]]
+    }
+  },
+  "far_roi": [0, 380, 1920, 620],
+  "zones": [
+    {"name": "stairs", "mode": "exclude", "polygon": [[1500, 640], [1700, 640], [1760, 900], [1540, 900]]},
+    {"name": "walkway", "mode": "arrow", "direction_deg": 90, "classes": ["head", "person"],
+     "polygon": [[380, 1080], [1200, 1080], [1100, 440], [620, 440]]},
+    {"name": "road", "mode": "arrow", "direction_deg": 270, "classes": ["bus", "car", "truck"],
+     "polygon": [[1200, 1080], [1920, 1080], [1920, 700], [1300, 440], [1100, 440]]},
+    {"name": "plaza", "mode": "both", "classes": ["head", "person"],
+     "polygon": [[0, 1080], [380, 1080], [620, 440], [0, 440]]}
+  ]
+}

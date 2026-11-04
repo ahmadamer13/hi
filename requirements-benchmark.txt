@@ -1,0 +1,16 @@
+# Phase 0 benchmark harness. On the target GPU install CUDA builds of torch / onnxruntime-gpu.
+numpy>=1.26
+opencv-python-headless>=4.9,<5     # OpenCV 5 removed the Darknet importer (lightnet baseline)
+scipy>=1.11
+pyyaml>=6
+torch>=2.3
+torchvision>=0.18
+transformers>=4.45                  # RT-DETR / RT-DETRv2
+huggingface_hub>=0.24
+onnx>=1.16
+onnxscript>=0.1
+onnxruntime>=1.18                   # onnxruntime-gpu on target (TensorRT EP)
+ultralytics>=8.4                    # AGPL-3.0: used only to RUN/benchmark AGPL candidates
+gdown>=5                            # Owen718 weights are on Google Drive
+pynvml>=11
+pytest>=8

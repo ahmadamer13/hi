@@ -1,0 +1,93 @@
+{
+  "wesjos-11n-head": {
+    "source": "hf://wesjos/YOLO-head-detection/11n-head.pt",
+    "license": "AGPL-3.0",
+    "files": {
+      "models/wesjos__YOLO-head-detection/11n-head.pt": "3e77df23ad6ebcc485392ccb1326d27b3d64e97c8ca70defcb7c80278ed06286"
+    }
+  },
+  "wesjos-11m-head": {
+    "source": "hf://wesjos/YOLO-head-detection/11m-head.pt",
+    "license": "AGPL-3.0",
+    "files": {
+      "models/wesjos__YOLO-head-detection/11m-head.pt": "042b061a3ebfee7b5859685a51df9e014d096325562ad5e675f315245a14e03e"
+    }
+  },
+  "wesjos-v8s-head": {
+    "source": "hf://wesjos/YOLO-head-detection/v8s-head.pt",
+    "license": "AGPL-3.0",
+    "files": {
+      "models/wesjos__YOLO-head-detection/v8s-head.pt": "1467b10e30a05be6a05950190e5efe30b50681270cb7baf6115ec96806b25964"
+    }
+  },
+  "sharath33-phd-s": {
+    "source": "hf://Sharath33/Person/yolov11_phd_s.onnx",
+    "license": "OpenRAIL++ (declared)",
+    "files": {
+      "models/Sharath33__Person/yolov11_phd_s.onnx": "3f0a061b37f1398be76fc344c116a8a6c42fb835583cabe33ddd80812ef4af10"
+    }
+  },
+  "lightnet-headbody-640": {
+    "source": "hf://yunkai/yolo-lightnet/head_body/lightnet-head_body-640x640.weights",
+    "license": "Apache-2.0",
+    "files": {
+      "models/yunkai__yolo-lightnet/head_body/lightnet-head_body-640x640.weights": "99947766f6f6f001811e7d4b3bd0e54ab073c30947df986c6e4daae32bd87d49",
+      "models/yunkai__yolo-lightnet/head_body/lightnet-head_body-640x640.cfg": "c21ac4244d9058ea0fea8b43dc403a113a658d85bd8ac0da1025852eb5b706ed"
+    }
+  },
+  "lightnet-headbody-1024": {
+    "source": "hf://yunkai/yolo-lightnet/head_body/lightnet-head_body-1024x768.weights",
+    "license": "Apache-2.0",
+    "files": {
+      "models/yunkai__yolo-lightnet/head_body/lightnet-head_body-1024x768.weights": "84755400efafae3aec449b9ed5104e7e90302adfcb9549f8d43becdac23e6cbf",
+      "models/yunkai__yolo-lightnet/head_body/lightnet-head_body-1024x768.cfg": "993087645ca341cc060a6eb03d6534e501b5f1f7e92319779e1e4026006c27a7"
+    }
+  },
+  "rtdetr-r18vd": {
+    "source": "hf://PekingU/rtdetr_r18vd",
+    "license": "Apache-2.0",
+    "files": {
+      "models/PekingU__rtdetr_r18vd/.gitattributes": "11ad7efa24975ee4b0c3c3a38ed18737f0658a5f75a0a96787b576a78a023361",
+      "models/PekingU__rtdetr_r18vd/README.md": "0d6d6065595011f4897e724f11d2b86494764eba68e3514cc6c70f0a851e539e",
+      "models/PekingU__rtdetr_r18vd/config.json": "8493be71f51a1c0a741f8f71ec151039227579379de7bcba047c0470d9320c3c",
+      "models/PekingU__rtdetr_r18vd/model.safetensors": "fe87a5a30f5daf298d10794c7682a63b6107986f97d6a770ba948d89e4340093",
+      "models/PekingU__rtdetr_r18vd/preprocessor_config.json": "ffb4b9461a1dad746be8f0f9c8330ed7743a1ba5fba4f75c232cd281b3d4c64a"
+    }
+  },
+  "rtdetr-r50vd": {
+    "source": "hf://PekingU/rtdetr_r50vd",
+    "license": "Apache-2.0",
+    "files": {
+      "models/PekingU__rtdetr_r50vd/.gitattributes": "11ad7efa24975ee4b0c3c3a38ed18737f0658a5f75a0a96787b576a78a023361",
+      "models/PekingU__rtdetr_r50vd/README.md": "4a0c10ddd0dbf6a2c6815cfc1613a5d74f3b0e7c8c77f0252212d3e5365e98cb",
+      "models/PekingU__rtdetr_r50vd/config.json": "2ed2a305c51eef46715eb755a02b2a266ecfb752936cc9574bb5714601c2742d",
+      "models/PekingU__rtdetr_r50vd/model.safetensors": "5263d5521eff3e356f6cd8a371fd5dfb891725beda5f713674f79669115cdc64",
+      "models/PekingU__rtdetr_r50vd/preprocessor_config.json": "ffb4b9461a1dad746be8f0f9c8330ed7743a1ba5fba4f75c232cd281b3d4c64a"
+    }
+  },
+  "rtdetrv2-r18vd": {
+    "source": "hf://PekingU/rtdetr_v2_r18vd",
+    "license": "Apache-2.0",
+    "files": {
+      "models/PekingU__rtdetr_v2_r18vd/.gitattributes": "11ad7efa24975ee4b0c3c3a38ed18737f0658a5f75a0a96787b576a78a023361",
+      "models/PekingU__rtdetr_v2_r18vd/README.md": "4a26a3a6de73500f181e4edbc75b3f3f19ca6dde0fdaceeeb78167f223973305",
+      "models/PekingU__rtdetr_v2_r18vd/config.json": "ed051ec77cb41c5d9d5e3af21a979b1e890599dfd68434d7636ff82ded4c1527",
+      "models/PekingU__rtdetr_v2_r18vd/model.safetensors": "d18309d0d7ea57048138885c4c6ecfcb1e24506fc6153b94ad484f8ab62c7115",
+      "models/PekingU__rtdetr_v2_r18vd/preprocessor_config.json": "cd38cd59999e7a95d68e487fbe5132df3d4e5c32a0836add57e6126ba0c4eaf1"
+    }
+  },
+  "yolo11s-coco": {
+    "source": "ultralytics://yolo11s.pt",
+    "license": "AGPL-3.0",
+    "files": {
+      "models/yolo11s.pt": "85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5"
+    }
+  },
+  "yolo11m-coco": {
+    "source": "ultralytics://yolo11m.pt",
+    "license": "AGPL-3.0",
+    "files": {
+      "models/yolo11m.pt": "d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95"
+    }
+  }
+}
